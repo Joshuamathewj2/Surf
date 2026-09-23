@@ -34,6 +34,32 @@ KNOWN_APPS = {
     "powerpoint": "powerpnt.exe"
 }
 
+def resolve_windows_app_path(app_target: str) -> str:
+    """Resolves an executable target using system PATH and Windows Registry App Paths."""
+    import shutil
+    # 1. Check system PATH
+    p = shutil.which(app_target)
+    if p:
+        return p
+
+    # 2. Check Windows Registry App Paths
+    try:
+        import winreg
+        exe_name = app_target if app_target.endswith(".exe") else f"{app_target}.exe"
+        for root in (winreg.HKEY_LOCAL_MACHINE, winreg.HKEY_CURRENT_USER):
+            try:
+                sub_key = rf"Software\Microsoft\Windows\CurrentVersion\App Paths\{exe_name}"
+                with winreg.OpenKey(root, sub_key) as key:
+                    val, _ = winreg.QueryValueEx(key, "")
+                    if val and os.path.exists(val):
+                        return val
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+    return ""
+
 class AppSkill(BaseSkill):
     name = "app_launcher"
 
@@ -65,11 +91,19 @@ class AppSkill(BaseSkill):
         # 1. Check known binary map
         if norm_name in KNOWN_APPS:
             target = KNOWN_APPS[norm_name]
-            try:
-                subprocess.Popen(target, shell=True)
-                return True, f"Opening {app_name}"
-            except Exception as e:
-                logger.debug(f"Direct binary launch failed for {target}: {e}")
+            resolved = resolve_windows_app_path(target)
+            if resolved:
+                try:
+                    subprocess.Popen([resolved])
+                    return True, f"Opening {app_name}"
+                except Exception as e:
+                    logger.debug(f"Direct launch of {resolved} failed: {e}")
+            else:
+                try:
+                    subprocess.Popen(target, shell=True)
+                    return True, f"Opening {app_name}"
+                except Exception as e:
+                    logger.debug(f"Direct binary launch failed for {target}: {e}")
 
         # 2. Check app_index (scanned Start Menu / Desktop shortcuts)
         try:

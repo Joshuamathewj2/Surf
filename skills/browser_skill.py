@@ -12,6 +12,42 @@ from core.logger import get_logger
 
 logger = get_logger("skills.browser")
 
+def find_chrome_path() -> str:
+    """Finds the actual full path to chrome.exe via Registry or standard locations."""
+    # 1. Check Windows Registry App Paths
+    try:
+        import winreg
+        for root in (winreg.HKEY_LOCAL_MACHINE, winreg.HKEY_CURRENT_USER):
+            try:
+                with winreg.OpenKey(root, r"Software\Microsoft\Windows\CurrentVersion\App Paths\chrome.exe") as key:
+                    val, _ = winreg.QueryValueEx(key, "")
+                    if val and os.path.exists(val):
+                        return val
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+    # 2. Check standard directory locations
+    candidates = [
+        r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+        r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
+        os.path.expandvars(r"%LOCALAPPDATA%\Google\Chrome\Application\chrome.exe"),
+        os.path.expandvars(r"%PROGRAMFILES%\Google\Chrome\Application\chrome.exe"),
+        os.path.expandvars(r"%PROGRAMFILES(X86)%\Google\Chrome\Application\chrome.exe"),
+    ]
+    for c in candidates:
+        if os.path.exists(c):
+            return c
+
+    # 3. Check system PATH
+    import shutil
+    p = shutil.which("chrome") or shutil.which("chrome.exe")
+    if p:
+        return p
+
+    return ""
+
 class BrowserSkill(BaseSkill):
     name = "browser"
 
@@ -58,21 +94,15 @@ class BrowserSkill(BaseSkill):
 
     def _open_chrome(self) -> Tuple[bool, str]:
         logger.info("Opening Google Chrome...")
-        # Method 1: direct process
-        try:
-            subprocess.Popen(["chrome.exe"], shell=True)
-            return True, "Opening Chrome"
-        except Exception:
-            pass
+        chrome_bin = find_chrome_path()
+        if chrome_bin:
+            try:
+                subprocess.Popen([chrome_bin])
+                return True, "Opening Chrome"
+            except Exception as e:
+                logger.debug(f"Direct launch of {chrome_bin} failed: {e}")
 
-        # Method 2: native startfile
-        try:
-            os.startfile("chrome.exe")
-            return True, "Opening Chrome"
-        except Exception:
-            pass
-
-        # Method 3: default web browser fallback
+        # Fallback to default web browser
         webbrowser.open("https://google.com")
         return True, "Opening browser"
 
