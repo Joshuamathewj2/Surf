@@ -11,3 +11,4 @@ pyttsx3
 pystray
 openwakeword
 plyer
+PyQt5

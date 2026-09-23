@@ -1,132 +1,148 @@
 """
 agent/router.py
-Routes user commands to either a direct action (fast, no LLM)
-or the LLM planner (for complex/unknown commands).
+Robust Intent-Based Router with synonym canonicalization,
+entity slot extraction, and multi-command parsing.
 """
-
 import re
+from typing import Dict, Any, List
+from core.logger import get_logger
 
-# ── Known application shortcuts (keyword → app name for open_app) ──────────
-APP_KEYWORDS = {
-    "spotify": "spotify",
-    "notepad": "notepad",
-    "calculator": "calc",
-    "excel": "excel",
-    "word": "winword",
-    "powerpoint": "powerpnt",
-    "vlc": "vlc",
-    "vs code": "code",
-    "vscode": "code",
-    "file explorer": "explorer",
-    "explorer": "explorer",
-    "cmd": "cmd",
-    "terminal": "cmd",
-    "paint": "mspaint",
-    "task manager": "taskmgr",
-    "whiteboard": "Microsoft Whiteboard"
-}
+logger = get_logger("router")
 
-def extract_query(command: str, trigger_phrases: list) -> str:
-    cmd = command.lower()
-    # Try regex match if it contains regex capture group
-    for pattern in trigger_phrases:
-        if "(" in pattern:
-            m = re.search(pattern, cmd)
-            if m:
-                return m.group(1).strip()
-        else:
-            if cmd.startswith(pattern):
-                return cmd.replace(pattern, "", 1).strip()
-            elif pattern in cmd:
-                return cmd.split(pattern)[-1].strip()
-    return ""
+# Synonym sets for command normalization
+VERB_OPEN = {"open", "launch", "start", "bring up", "run", "switch to"}
+VERB_CLOSE = {"close", "quit", "exit", "shut"}
+VERB_PLAY = {"play", "listen to", "put on", "stream"}
+VERB_SEARCH = {"search", "find", "look up", "google"}
 
-def extract_vision_click(command: str) -> str:
-    cmd = command.lower()
-    if "click " in cmd:
-        parts = cmd.split("click ", 1)
-        if len(parts) > 1:
-            return parts[1].strip().strip('"').strip("'")
-    return ""
+def split_compound_command(command: str) -> List[str]:
+    """
+    Splits multi-step commands on conjunctions:
+    e.g. 'open chrome and search lofi on youtube' -> ['open chrome', 'search lofi on youtube']
+    """
+    cmd = command.strip()
+    # Normalize common joiners
+    parts = re.split(r'\s+(?:and then|and|then)\s+', cmd, flags=re.IGNORECASE)
+    cleaned = [p.strip() for p in parts if p.strip()]
+    return cleaned if cleaned else [cmd]
 
-def route_command(command: str) -> dict:
-    cmd = command.lower()
+def _parse_single_intent(cmd: str) -> Dict[str, Any]:
+    norm = cmd.lower().strip()
+    norm = re.sub(r'^[,\.\?!]+|[,\.\?!]+$', '', norm) # Trim punctuation
 
-    # ── Vision Click ──────────────────────────────────────────────────────
-    if cmd.startswith("click "):
-        target = cmd.replace("click ", "").strip()
+    # 1. Vision Click
+    if norm.startswith("click "):
+        target = norm[6:].strip().strip('"\'')
         return {"type": "direct", "action": "click_text", "target": target}
-    if ("hey surf" in cmd or "hey sir" in cmd) and "click" in cmd:
-        target = extract_vision_click(cmd)
-        if target:
-            return {"type": "direct", "action": "click_text", "target": target}
 
-    # ── Screenshot ────────────────────────────────────────────────────────
-    if "screenshot" in cmd or "screen shot" in cmd:
+    # 2. Screenshot
+    if any(k in norm for k in ["take screenshot", "screenshot", "screen shot", "capture screen"]):
         return {"type": "direct", "action": "take_screenshot"}
 
-    # ── System Controls ───────────────────────────────────────────────────
-    if "volume up" in cmd:
+    # 3. Volume Controls
+    if any(k in norm for k in ["volume up", "increase volume", "louder", "turn up volume", "raise volume"]):
         return {"type": "direct", "action": "volume_up"}
-    if "volume down" in cmd:
+    if any(k in norm for k in ["volume down", "decrease volume", "lower volume", "quieter", "turn down volume"]):
         return {"type": "direct", "action": "volume_down"}
-    if "mute" in cmd:
+    if any(k in norm for k in ["mute audio", "unmute", "mute"]):
         return {"type": "direct", "action": "mute_audio"}
 
-    # ── Google search ─────────────────────────────────────────────────────
-    if "google" in cmd and not cmd.startswith("open"):
-        query = extract_query(cmd, ["search google for ", "google "])
-        if query:
-            return {"type": "direct", "action": "google_search", "query": query}
+    # 4. Tab Controls
+    if any(k in norm for k in ["new tab", "open a new tab", "open new tab"]):
+        return {"type": "direct", "action": "new_tab"}
+    if any(k in norm for k in ["close tab", "close this tab", "shut tab"]):
+        return {"type": "direct", "action": "close_tab"}
 
-    # ── YouTube search ────────────────────────────────────────────────────
-    if "youtube" in cmd and any(k in cmd for k in ["search", "play", "find"]):
-        query = extract_query(cmd, [r"search youtube for (.+)", r"youtube search (?:for )?(.+)", r"play (.+) on youtube", "search youtube"])
-        return {"type": "direct", "action": "youtube_search", "query": query}
+    # 5. YouTube Queries
+    # E.g. "search youtube for lofi", "play jazz on youtube", "search lofi on youtube", "open youtube"
+    if "youtube" in norm:
+        # Check if simply opening youtube
+        if any(norm.startswith(f"{v} youtube") for v in VERB_OPEN) or norm == "open youtube":
+            return {"type": "direct", "action": "open_youtube", "query": ""}
+        
+        # Extract query patterns
+        m = re.search(r'(?:search youtube for|youtube search for|search (?:for )?|play )\s*(.+?)(?:\s+(?:on|in) youtube)?$', norm)
+        if m:
+            query = m.group(1).replace("on youtube", "").replace("in youtube", "").strip()
+            if query:
+                return {"type": "direct", "action": "youtube_search", "query": query}
+        
+        m2 = re.search(r'youtube\s+(?:search\s+)?(.+)', norm)
+        if m2:
+            query = m2.group(1).strip()
+            return {"type": "direct", "action": "youtube_search", "query": query}
 
-    # ── Browser Control ───────────────────────────────────────────────────
-    if "open youtube" in cmd:
-        return {"type": "direct", "action": "open_url", "url": "https://youtube.com"}
-    if "open new tab" in cmd:
-        return {"type": "direct", "action": "new_browser_tab"}
-    if "close tab" in cmd:
-        return {"type": "direct", "action": "close_browser_tab"}
-
-    # ── Spotify play ──────────────────────────────────────────────────────
-    if "spotify" in cmd and "play" in cmd:
-        query = extract_query(cmd, [r"play (.+) on spotify", r"play (.+) in spotify", r"spotify play (.+)", r"open spotify and play (.+)"])
-        query = query.replace('"', '').replace('song', '').strip()
-        if query:
+    # 6. Spotify Queries
+    # E.g. "play bohemian rhapsody on spotify", "spotify play jazz"
+    if "spotify" in norm:
+        m = re.search(r'(?:play|listen to)\s+(.+?)(?:\s+on spotify|\s+in spotify)?$', norm)
+        if m:
+            query = m.group(1).replace("on spotify", "").replace("in spotify", "").strip()
             return {"type": "direct", "action": "play_spotify", "query": query}
+        m2 = re.search(r'spotify\s+(?:play\s+)?(.+)', norm)
+        if m2:
+            query = m2.group(1).strip()
+            return {"type": "direct", "action": "play_spotify", "query": query}
+        if any(norm.startswith(f"{v} spotify") for v in VERB_OPEN):
+            return {"type": "direct", "action": "play_spotify", "query": ""}
 
-    # ── App Launching ─────────────────────────────────────────────────────
-    if "open" in cmd:
-        if "notepad" in cmd:
-            return {"type": "direct", "action": "open_app", "app": "notepad"}
-        if "vscode" in cmd or "vs code" in cmd:
-            return {"type": "direct", "action": "open_app", "app": "code"}
-        if "whiteboard" in cmd:
-            return {"type": "direct", "action": "open_app", "app": "Microsoft Whiteboard"}
-        if "file explorer" in cmd or "explorer" in cmd:
-            return {"type": "direct", "action": "open_app", "app": "explorer"}
-        if "calculator" in cmd:
-            return {"type": "direct", "action": "open_app", "app": "calc"}
-        if "chrome" in cmd and "spotify" not in cmd:
+    # 7. Chrome Application Open/Close
+    if "chrome" in norm:
+        if any(norm.startswith(f"{v} chrome") for v in VERB_CLOSE):
+            return {"type": "direct", "action": "close_chrome"}
+        if any(norm.startswith(f"{v} chrome") for v in VERB_OPEN) or norm == "chrome":
             return {"type": "direct", "action": "open_chrome"}
 
-        # Catch-all for app launching via app_index
-        if cmd.startswith("open "):
-            target = cmd.replace("open ", "").strip()
-            return {"type": "direct", "action": "open_app", "app": target}
+    # 8. Notepad Open / Quick Notes
+    if "notepad" in norm or "notes" in norm:
+        if any(norm.startswith(f"{v} notepad") for v in VERB_OPEN) or norm == "notepad":
+            return {"type": "direct", "action": "open_notepad"}
+    
+    # 9. Typing / Note creation
+    if norm.startswith("type ") or norm.startswith("write "):
+        content = re.sub(r'^(?:type|write)\s+', '', norm).strip()
+        return {"type": "direct", "action": "type_text", "text": content}
 
-    # ── Web/n8n Tasks ─────────────────────────────────────────────────────
-    n8n_keywords = ["notify me", "send message", "message", "create notion"]
-    if any(k in cmd for k in n8n_keywords):
-        return {"type": "direct", "action": "trigger_n8n", "workflow": "surf_default", "payload": {"command": command}}
+    # 10. Google Web Search
+    if "google" in norm and not any(norm.startswith(f"{v} google") for v in VERB_OPEN):
+        m = re.search(r'(?:google search for|search google for|search for|google)\s+(.+)', norm)
+        if m:
+            query = m.group(1).strip()
+            return {"type": "direct", "action": "google_search", "query": query}
 
-    # ── Close Chrome ──────────────────────────────────────────────────────
-    if "close" in cmd and "chrome" in cmd:
-        return {"type": "direct", "action": "close_chrome"}
+    # 11. Generic URL Open
+    if norm.startswith("open http://") or norm.startswith("open https://") or norm.startswith("open www."):
+        url = norm.replace("open ", "", 1).strip()
+        return {"type": "direct", "action": "open_url", "url": url}
 
-    # Fall through: let the LLM planner handle everything else
+    # 12. General App Launching (with synonym support)
+    # E.g. "launch calculator", "start whiteboard", "open vscode"
+    for verb in VERB_OPEN:
+        if norm.startswith(f"{verb} "):
+            target_app = norm[len(verb)+1:].strip()
+            # If target app is notepad
+            if target_app in ("notepad", "notes"):
+                return {"type": "direct", "action": "open_notepad"}
+            return {"type": "direct", "action": "open_app", "app": target_app}
+
+    # 13. Fallback: LLM Planner
     return {"type": "llm"}
+
+def route_command(command: str) -> Dict[str, Any]:
+    """
+    Routes command with multi-step conjunction support.
+    """
+    sub_commands = split_compound_command(command)
+
+    if len(sub_commands) > 1:
+        actions = []
+        for sub_cmd in sub_commands:
+            parsed = _parse_single_intent(sub_cmd)
+            actions.append(parsed)
+        return {
+            "type": "multi",
+            "actions": actions,
+            "raw": command
+        }
+    
+    return _parse_single_intent(sub_commands[0])

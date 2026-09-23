@@ -1,34 +1,26 @@
 """
 agent/loop.py
-Main agent loop: takes user input, calls the LLM planner, and
-executes the resulting actions sequentially.
+Main agent loop: handles text and voice input, intent routing,
+modular skill dispatch, and LLM planning fallback.
 """
-
 import json
 import sys
 import os
+import time
 
 try:
     from interface.hud import set_state
 except ImportError:
-    # Graceful fallback if no UI
     def set_state(*args, **kwargs): pass
 
-# We ensure we can import all modules
-try:
-    from llm.planner import plan_actions
-    from executor.actions import (
-        execute_action, open_chrome, close_chrome, youtube_search,
-        open_app, google_search, open_url, new_browser_tab, close_browser_tab,
-        take_screenshot, volume_up, volume_down, mute_audio, click_text, play_spotify
-    )
-    from agent.router import route_command
-    from agent.autocorrect import correct_command
-    from agent.safety import is_safe
-    from voice.recognizer import load_model, record_and_transcribe
-except ImportError as e:
-    print(f"Missing a dependency for imports: {e}")
-    sys.exit(1)
+from core.logger import get_logger
+from agent.router import route_command
+from agent.autocorrect import correct_command
+from agent.safety import is_safe
+from agent.speaker import speak
+from skills.registry import dispatch_action
+
+logger = get_logger("loop")
 
 BANNER = r"""
  ____  _   _ ____  _____
@@ -37,8 +29,16 @@ BANNER = r"""
  ___) | |_| |  _ <|  _|
 |____/ \___/|_| \_\_|
 
-  Local AI Desktop Automation Agent
+  Local AI Desktop Automation Agent (v2.0)
 """
+
+def execute_direct_intent(action_dict: dict) -> bool:
+    """Executes a single direct intent using the modular skills registry."""
+    action = action_dict.get("action", "")
+    success, feedback = dispatch_action(action, action_dict)
+    if feedback:
+        speak(feedback)
+    return success
 
 def run():
     print(BANNER)
@@ -47,22 +47,32 @@ def run():
     except (EOFError, KeyboardInterrupt):
         print("\nGoodbye!")
         os._exit(0)
-        
+
     if mode == "2":
-        load_model()
-        
+        try:
+            from voice.recognizer import load_model
+            load_model()
+        except Exception as e:
+            logger.warning(f"Voice model pre-load warning: {e}")
+
     while True:
         set_state("idle", "")
-        
+
         if mode == "2":
             set_state("listening", "LISTENING")
-            user_input = record_and_transcribe()
+            try:
+                from voice.recognizer import record_and_transcribe
+                user_input = record_and_transcribe()
+            except Exception as e:
+                logger.error(f"Voice capture error: {e}")
+                user_input = ""
+
             if user_input:
-                print("[VOICE INPUT]", user_input)
+                print(f"\n[VOICE INPUT] \"{user_input}\"")
         else:
             try:
                 set_state("listening", "AWAITING INPUT")
-                user_input = input(">>> ").strip()
+                user_input = input("\n>>> ").strip()
             except (EOFError, KeyboardInterrupt):
                 print("\nGoodbye!")
                 os._exit(0)
@@ -75,92 +85,77 @@ def run():
             print("Goodbye!")
             os._exit(0)
 
-        # Correct
-        user_input = correct_command(user_input)
+        # 1. Phonetic & Entity Autocorrect
+        corrected = correct_command(user_input)
+        if corrected != user_input:
+            logger.info(f"Corrected: \"{user_input}\" -> \"{corrected}\"")
+            user_input = corrected
 
-        # Safety Check
+        # 2. Safety Gate
         if not is_safe(user_input):
             set_state("error", "RESTRICTED")
-            print("[BLOCKED] Unsafe command")
+            print("[BLOCKED] Restricted or dangerous system command.")
+            speak("Command blocked for safety.")
             continue
 
-        # Route
+        # 3. Intent Routing
         route = route_command(user_input)
 
-        # Execute
+        # 4. Action Execution
         if route["type"] == "direct":
             set_state("executing", "EXECUTING")
-            if route["action"] == "open_chrome":
-                open_chrome()
-            elif route["action"] == "close_chrome":
-                close_chrome()
-            elif route["action"] == "youtube_search":
-                youtube_search(route.get("query", ""))
-            elif route["action"] == "play_spotify":
-                play_spotify(route.get("query", ""))
-            elif route["action"] == "open_app":
-                open_app(route["app"])
-            elif route["action"] == "google_search":
-                google_search(route["query"])
-            elif route["action"] == "open_url":
-                open_url(route["url"])
-            elif route["action"] == "new_browser_tab":
-                new_browser_tab()
-            elif route["action"] == "close_browser_tab":
-                close_browser_tab()
-            elif route["action"] == "take_screenshot":
-                take_screenshot()
-            elif route["action"] == "volume_up":
-                volume_up()
-            elif route["action"] == "volume_down":
-                volume_down()
-            elif route["action"] == "mute_audio":
-                mute_audio()
-            elif route["action"] == "click_text":
-                click_text(route["target"])
-            elif route["action"] == "vision_click":
-                # Fallback to click_text if vision_click matches
-                click_text(route["target"])
+            execute_direct_intent(route)
             set_state("idle", "IDLE")
-        else:
-            set_state("thinking", "PLANNING")
-            print(f'\n[Planner] Interpreting: "{user_input}" ...')
-            
-            # Vision and Memory integration for smarter planning
-            try:
-                from vision.screen_reader import read_screen_text
-                from agent.memory import get_context_string, add_to_memory
-                
-                screen_text = read_screen_text()
-                mem_context = get_context_string()
-                
-                context = mem_context
-                if screen_text:
-                    context += f" (Context: Current screen contains text: {screen_text[:500]})"
-                user_input_with_context = user_input + context
-            except Exception as e:
-                print(f"  [WARN] Vision/Memory context failed: {e}")
-                user_input_with_context = user_input
 
-            steps = plan_actions(user_input_with_context)
-            
-            if not steps:
-                set_state("error", "PLAN FAILED")
-                print("[Planner] No actions generated. Try rephrasing.\n")
-                continue
-                
-            print(f"[Planner] Generated {len(steps)} action(s):")
-            print(json.dumps(steps, indent=2))
-            
-            set_state("executing", f"RUNNING {len(steps)} STEPS")
-            print("\n[Executor] Running actions...")
-            for i, step in enumerate(steps, 1):
-                print(f"\n  Step {i}/{len(steps)}:")
-                execute_action(step)
-            print("\n[Done] All actions executed.\n")
+        elif route["type"] == "multi":
+            set_state("executing", "EXECUTING MULTI")
+            logger.info(f"Executing compound command with {len(route['actions'])} steps:")
+            for idx, sub_action in enumerate(route["actions"], 1):
+                logger.info(f"Step {idx}: {sub_action.get('action')}")
+                if sub_action.get("type") == "direct":
+                    execute_direct_intent(sub_action)
+                time.sleep(0.15)
+            set_state("idle", "IDLE")
+
+        else:
+            # 5. LLM Planner Fallback
+            set_state("thinking", "PLANNING")
+            print(f'\n[Planner] Interpreting complex query: "{user_input}" ...')
+
             try:
-                from agent.memory import add_to_memory
-                add_to_memory(user_input, f"Executed {len(steps)} steps successfully.")
-            except:
-                pass
+                from llm.planner import plan_actions
+                from executor.actions import execute_action
+
+                # Only query vision if explicitly requested
+                context = ""
+                if any(w in user_input.lower() for w in ["screen", "button", "see", "click"]):
+                    try:
+                        from vision.screen_reader import read_screen_text
+                        screen_text = read_screen_text()
+                        if screen_text:
+                            context = f" (Screen contains: {screen_text[:300]})"
+                    except Exception:
+                        pass
+
+                steps = plan_actions(user_input + context)
+                if not steps:
+                    set_state("error", "PLAN FAILED")
+                    print("[Planner] No actions generated (is Ollama running?). Try a direct command.\n")
+                    speak("Could not generate a plan for that command.")
+                    continue
+
+                print(f"[Planner] Generated {len(steps)} action(s):")
+                print(json.dumps(steps, indent=2))
+
+                set_state("executing", f"RUNNING {len(steps)} STEPS")
+                for i, step in enumerate(steps, 1):
+                    print(f"  Step {i}/{len(steps)}:")
+                    execute_action(step)
+                print("[Done] All actions executed.\n")
+
+            except Exception as e:
+                logger.error(f"Planning failed: {e}")
+                set_state("error", "ERROR")
+                speak("Error during plan execution.")
+
             set_state("idle", "IDLE")
