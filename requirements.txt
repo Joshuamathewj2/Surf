@@ -1,0 +1,13 @@
+pyautogui
+pygetwindow
+requests
+rapidfuzz
+sounddevice
+numpy
+faster-whisper
+pytesseract
+Pillow
+pyttsx3
+pystray
+openwakeword
+plyer

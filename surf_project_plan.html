@@ -1,0 +1,121 @@
+
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: var(--font-sans); }
+.plan { padding: 1rem 0; }
+.phase { margin-bottom: 1.5rem; border: 0.5px solid var(--color-border-tertiary); border-radius: var(--border-radius-lg); overflow: hidden; }
+.phase-header { padding: 0.75rem 1.25rem; display: flex; align-items: center; gap: 12px; }
+.phase-badge { font-size: 11px; font-weight: 500; padding: 3px 10px; border-radius: 20px; white-space: nowrap; }
+.phase-title { font-size: 15px; font-weight: 500; color: var(--color-text-primary); }
+.phase-sub { font-size: 12px; color: var(--color-text-secondary); margin-left: auto; white-space: nowrap; }
+.phase-body { padding: 0 1.25rem 1rem; }
+.task { display: flex; align-items: flex-start; gap: 10px; padding: 6px 0; border-top: 0.5px solid var(--color-border-tertiary); }
+.task:first-child { border-top: none; }
+.task-dot { width: 8px; height: 8px; border-radius: 50%; margin-top: 5px; flex-shrink: 0; }
+.task-name { font-size: 13px; color: var(--color-text-primary); font-weight: 500; }
+.task-detail { font-size: 12px; color: var(--color-text-secondary); }
+.file-tag { font-size: 11px; font-family: var(--font-mono); background: var(--color-background-secondary); border: 0.5px solid var(--color-border-tertiary); border-radius: 4px; padding: 1px 6px; color: var(--color-text-secondary); margin-left: 4px; }
+.status-row { display: flex; gap: 8px; flex-wrap: wrap; margin: 0 0 1rem; }
+.pill { font-size: 11px; padding: 3px 10px; border-radius: 20px; font-weight: 500; }
+.done { background: var(--color-background-success); color: var(--color-text-success); }
+.inprog { background: var(--color-background-warning); color: var(--color-text-warning); }
+.todo { background: var(--color-background-secondary); color: var(--color-text-secondary); border: 0.5px solid var(--color-border-secondary); }
+.p1h { background: #E1F5EE; } .p1b { background: #9FE1CB; } .p1d { color: #085041; } .p1dot { background: #1D9E75; }
+.p2h { background: #EEEDFE; } .p2b { background: #CECBF6; } .p2d { color: #3C3489; } .p2dot { background: #7F77DD; }
+.p3h { background: #FAEEDA; } .p3b { background: #FAC775; } .p3d { color: #633806; } .p3dot { background: #BA7517; }
+.p4h { background: #FAECE7; } .p4b { background: #F5C4B3; } .p4d { color: #712B13; } .p4dot { background: #D85A30; }
+.p5h { background: #EAF3DE; } .p5b { background: #C0DD97; } .p5d { color: #27500A; } .p5dot { background: #639922; }
+@media (prefers-color-scheme: dark) {
+  .p1h{background:#085041;} .p1b{background:#0F6E56;} .p1d{color:#9FE1CB;}
+  .p2h{background:#3C3489;} .p2b{background:#534AB7;} .p2d{color:#CECBF6;}
+  .p3h{background:#633806;} .p3b{background:#854F0B;} .p3d{color:#FAC775;}
+  .p4h{background:#712B13;} .p4b{background:#993C1D;} .p4d{color:#F5C4B3;}
+  .p5h{background:#27500A;} .p5b{background:#3B6D11;} .p5d{color:#C0DD97;}
+}
+</style>
+<div class="plan">
+
+<div class="status-row">
+  <span class="pill done">Phase 1 — done</span>
+  <span class="pill done">Phase 2 — done</span>
+  <span class="pill done">Phase 3 — done</span>
+  <span class="pill done">Phase 4 — done</span>
+  <span class="pill inprog">Phase 5 — current</span>
+</div>
+
+<div class="phase">
+  <div class="phase-header p1h">
+    <span class="phase-badge p1b p1d">Phase 1</span>
+    <span class="phase-title">MVP — text command to action</span>
+    <span class="phase-sub p1d">COMPLETE</span>
+  </div>
+  <div class="phase-body">
+    <div class="task"><div class="task-dot p1dot"></div><div><div class="task-name">Core architecture<span class="file-tag">main.py</span><span class="file-tag">config.py</span></div><div class="task-detail">Entry point, settings, folder structure established</div></div></div>
+    <div class="task"><div class="task-dot p1dot"></div><div><div class="task-name">LLM planner<span class="file-tag">llm/planner.py</span></div><div class="task-detail">phi3:mini via Ollama → strict JSON action list output</div></div></div>
+    <div class="task"><div class="task-dot p1dot"></div><div><div class="task-name">Action executor<span class="file-tag">executor/actions.py</span></div><div class="task-detail">pyautogui functions: open_start_menu, type, press, click, wait</div></div></div>
+    <div class="task"><div class="task-dot p1dot"></div><div><div class="task-name">Agent loop<span class="file-tag">agent/loop.py</span></div><div class="task-detail">Input → plan → execute with graceful exit</div></div></div>
+    <div class="task"><div class="task-dot p1dot"></div><div><div class="task-name">Hybrid router<span class="file-tag">agent/router.py</span></div><div class="task-detail">open_chrome works via direct action, bypasses LLM</div></div></div>
+    <div class="task"><div class="task-dot p1dot"></div><div><div class="task-name">Safety + autocorrect<span class="file-tag">agent/safety.py</span><span class="file-tag">agent/autocorrect.py</span></div><div class="task-detail">Blocks dangerous commands, fixes typos via rapidfuzz</div></div></div>
+  </div>
+</div>
+
+<div class="phase">
+  <div class="phase-header p2h">
+    <span class="phase-badge p2b p2d">Phase 2</span>
+    <span class="phase-title">Expanded actions + voice input + vision</span>
+    <span class="phase-sub p2d">COMPLETE</span>
+  </div>
+  <div class="phase-body">
+    <div class="task"><div class="task-dot p2dot"></div><div><div class="task-name">More direct actions<span class="file-tag">executor/actions.py</span></div><div class="task-detail">open_app, google_search, open_url, new_browser_tab, close_tab, volume_up/down, mute, take_screenshot</div></div></div>
+    <div class="task"><div class="task-dot p2dot"></div><div><div class="task-name">Expanded router<span class="file-tag">agent/router.py</span></div><div class="task-detail">Routes for Notepad, VSCode, Whiteboard, Google, YouTube, system controls, click_text</div></div></div>
+    <div class="task"><div class="task-dot p2dot"></div><div><div class="task-name">Voice input module<span class="file-tag">voice/recognizer.py</span></div><div class="task-detail">sounddevice records → faster-whisper transcribes locally, load_model() once at startup</div></div></div>
+    <div class="task"><div class="task-dot p2dot"></div><div><div class="task-name">Vision / OCR module<span class="file-tag">vision/screen_reader.py</span></div><div class="task-detail">pytesseract reads screen text, find_text_on_screen() returns coordinates for click_text</div></div></div>
+    <div class="task"><div class="task-dot p2dot"></div><div><div class="task-name">Text feedback (TTS)<span class="file-tag">agent/speaker.py</span></div><div class="task-detail">pyttsx3 speaks action results aloud — "Opening Chrome", "Screenshot saved"</div></div></div>
+  </div>
+</div>
+
+<div class="phase">
+  <div class="phase-header p3h">
+    <span class="phase-badge p3b p3d">Phase 3</span>
+    <span class="phase-title">Always-on daemon + wake word + app awareness</span>
+    <span class="phase-sub p3d">COMPLETE</span>
+  </div>
+  <div class="phase-body">
+    <div class="task"><div class="task-dot p3dot"></div><div><div class="task-name">Wake word detector<span class="file-tag">wake/detector.py</span></div><div class="task-detail">openWakeWord listens for "Hey Surf" 24/7 at ~1% CPU, triggers voice capture pipeline</div></div></div>
+    <div class="task"><div class="task-dot p3dot"></div><div><div class="task-name">App index builder<span class="file-tag">agent/app_index.py</span></div><div class="task-detail">Scans Desktop, Start Menu, registry — builds fuzzy lookup dict of all installed apps and your projects</div></div></div>
+    <div class="task"><div class="task-dot p3dot"></div><div><div class="task-name">Personal project launcher</div><div class="task-detail">"open egoTracker" → fuzzy matches app_index → launches correct .lnk or .exe directly</div></div></div>
+    <div class="task"><div class="task-dot p3dot"></div><div><div class="task-name">Background daemon<span class="file-tag">main.pyw</span></div><div class="task-detail">Runs silently with no console window, auto-starts with Windows via Task Scheduler or startup folder</div></div></div>
+    <div class="task"><div class="task-dot p3dot"></div><div><div class="task-name">System tray icon<span class="file-tag">tray/icon.py</span></div><div class="task-detail">pystray icon shows Surf is running, right-click menu: pause, switch mode, quit</div></div></div>
+  </div>
+</div>
+
+<div class="phase">
+  <div class="phase-header p4h">
+    <span class="phase-badge p4b p4d">Phase 4</span>
+    <span class="phase-title">n8n integration + OS-level intelligence</span>
+    <span class="phase-sub p4d">COMPLETE</span>
+  </div>
+  <div class="phase-body">
+    <div class="task"><div class="task-dot p4dot"></div><div><div class="task-name">n8n webhook bridge<span class="file-tag">executor/n8n_bridge.py</span></div><div class="task-detail">trigger_n8n(workflow, payload) → POST to localhost:5678 — Surf handles OS, n8n handles web/APIs</div></div></div>
+    <div class="task"><div class="task-dot p4dot"></div><div><div class="task-name">Web task routing</div><div class="task-detail">"notify me", "send message", "create Notion page" → routed to n8n instead of pyautogui</div></div></div>
+    <div class="task"><div class="task-dot p4dot"></div><div><div class="task-name">Context memory<span class="file-tag">agent/memory.py</span></div><div class="task-detail">Stores last 10 commands + results in JSON — LLM uses context for follow-up commands</div></div></div>
+    <div class="task"><div class="task-dot p4dot"></div><div><div class="task-name">File operations<span class="file-tag">executor/files.py</span></div><div class="task-detail">open_folder, create_file, search_file — uses os and subprocess, no pyautogui needed</div></div></div>
+    <div class="task"><div class="task-dot p4dot"></div><div><div class="task-name">Notification system</div><div class="task-detail">Windows toast notifications via plyer — "Hey Surf completed: screenshot saved"</div></div></div>
+  </div>
+</div>
+
+<div class="phase">
+  <div class="phase-header p5h">
+    <span class="phase-badge p5b p5d">Phase 5</span>
+    <span class="phase-title">Vision intelligence + self-learning</span>
+    <span class="phase-sub p5d">IN PROGRESS</span>
+  </div>
+  <div class="phase-body">
+    <div class="task"><div class="task-dot p5dot"></div><div><div class="task-name">Vision model integration<span class="file-tag">vision/model.py</span></div><div class="task-detail">Moondream2 (1.8B) understands screenshots — "what app is open?", "where is the save button?"</div></div></div>
+    <div class="task"><div class="task-dot p5dot"></div><div><div class="task-name">Smart click by vision</div><div class="task-detail">Combine OCR + vision to find and click any UI element by description, not just exact text</div></div></div>
+    <div class="task"><div class="task-dot p5dot"></div><div><div class="task-name">Command learning<span class="file-tag">agent/learner.py</span></div><div class="task-detail">Logs successful commands → builds personal shortcuts over time → auto-adds to router</div></div></div>
+    <div class="task"><div class="task-dot p5dot"></div><div><div class="task-name">Multi-step task chains</div><div class="task-detail">"open egoTracker and go to the dashboard" → vision confirms open → navigates inside app</div></div></div>
+  </div>
+</div>
+
+</div>
