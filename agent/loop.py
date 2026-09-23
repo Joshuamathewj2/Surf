@@ -8,10 +8,7 @@ import sys
 import os
 import time
 
-try:
-    from interface.hud import set_state
-except ImportError:
-    def set_state(*args, **kwargs): pass
+from interface.state import set_state
 
 from core.logger import get_logger
 from agent.router import route_command
@@ -43,7 +40,7 @@ def execute_direct_intent(action_dict: dict) -> bool:
 def run():
     print(BANNER)
     try:
-        mode = input("Mode: [1] Text  [2] Voice → ").strip()
+        mode = input("Mode: [1] Text  [2] Voice -> ").strip()
     except (EOFError, KeyboardInterrupt):
         print("\nGoodbye!")
         os._exit(0)
@@ -52,6 +49,7 @@ def run():
         try:
             from voice.recognizer import load_model
             load_model()
+            print("\n[Voice Mode Active] Speak anytime. Surf is listening...")
         except Exception as e:
             logger.warning(f"Voice model pre-load warning: {e}")
 
@@ -69,6 +67,9 @@ def run():
 
             if user_input:
                 print(f"\n[VOICE INPUT] \"{user_input}\"")
+            else:
+                set_state("idle", "IDLE")
+                continue
         else:
             try:
                 set_state("listening", "AWAITING INPUT")

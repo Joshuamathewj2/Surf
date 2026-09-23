@@ -4,25 +4,32 @@ from PyQt5.QtWidgets import QApplication, QWidget
 from PyQt5.QtCore import Qt, pyqtSignal, QObject, QTimer, QPointF, QRectF
 from PyQt5.QtGui import QPainter, QColor, QBrush, QFont, QPen, QRadialGradient
 
+from interface.state import get_state, set_state
+
 class HUDController(QObject):
     state_changed = pyqtSignal(str, str)
 
 # Global controller instance
 _controller = None
 
-def set_state(state: str, text: str = ""):
-    """
-    Update the HUD state from any thread.
-    States: listening, thinking, executing, error, idle
-    """
-    if _controller is not None:
-        _controller.state_changed.emit(state, text)
-
 class ArcReactorHUD(QWidget):
-    def __init__(self, controller):
+    def __init__(self, controller=None):
         super().__init__()
         self.controller = controller
-        self.controller.state_changed.connect(self.update_state)
+        if self.controller is not None:
+            self.controller.state_changed.connect(self.update_state)
+
+        # State poll timer
+        self.state_timer = QTimer(self)
+        self.state_timer.timeout.connect(self._poll_shared_state)
+        self.state_timer.start(60)
+
+    def _poll_shared_state(self):
+        st = get_state()
+        state = st.get("state", "idle")
+        text = st.get("text", "")
+        if state != self.current_state or (text and text != self.display_text):
+            self.update_state(state, text)
 
         # State definitions: color is stored as tuple (r, g, b) to avoid mutation bugs
         self.states = {

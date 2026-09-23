@@ -48,7 +48,7 @@ def record_and_transcribe() -> str:
         segments, info = _model.transcribe(
             audio,
             beam_size=1, # Greedy search for sub-second command decoding
-            language="en" if ".en" in config.VOICE_MODEL else None
+            language="en"
         )
         transcribed_text = " ".join(seg.text for seg in segments).strip()
         elapsed = time.time() - start_t
