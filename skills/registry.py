@@ -8,6 +8,8 @@ from skills.browser_skill import BrowserSkill
 from skills.app_skill import AppSkill
 from skills.system_skill import SystemSkill
 from skills.notes_skill import NotesSkill
+from skills.info_skill import InfoSkill
+from skills.shortcut_skill import ShortcutSkill
 from core.logger import get_logger
 
 logger = get_logger("skills.registry")
@@ -22,6 +24,8 @@ class SkillRegistry:
         self.register(AppSkill())
         self.register(SystemSkill())
         self.register(NotesSkill())
+        self.register(InfoSkill())
+        self.register(ShortcutSkill())
 
     def register(self, skill: BaseSkill):
         self._skills.append(skill)

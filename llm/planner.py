@@ -1,185 +1,204 @@
 """
 llm/planner.py
-Calls the local Ollama API to convert natural-language commands into
-desktop-automation action lists.
+Local LLM (Ollama) features:
+  - plan_actions(): natural language -> validated list of desktop actions
+  - ask():          short spoken answer to a question
+  - compose():      text to type (emails, notes, poems...)
+  - warm_up():      load the model in the background so the first request isn't slow
 
-If Ollama is not running, the function returns an empty list and prints a
-clear, actionable message instead of a cryptic WinError 10061.
+Planner output is validated against an allowlist. The model can never run shell
+commands: an LLM that mishears "list files" must not be able to execute anything.
 """
 import json
 import re
+import threading
+from typing import Any
+
 import requests
-# Use core.config (the rebuilt version) — NOT the legacy root config.py
+
 from core import config
 from core.logger import get_logger
 
 logger = get_logger("planner")
 
-# ── Ollama health-check ───────────────────────────────────────────────────────
+# action -> required fields and their types
+ALLOWED_ACTIONS: dict[str, dict[str, type | tuple[type, ...]]] = {
+    "open_app": {"name": str},
+    "open_url": {"url": str},
+    "youtube_search": {"query": str},
+    "google_search": {"query": str},
+    "type": {"text": str},
+    "press": {"key": str},
+    "hotkey": {"keys": list},
+    "wait": {"seconds": (int, float)},
+    "scroll": {"direction": str},
+    "focus_window": {"title": str},
+    "take_screenshot": {},
+    "open_start_menu": {},
+}
+MAX_WAIT_SEC = 10
+MAX_STEPS = 12
+
+_SYSTEM = """You turn a user's spoken request into Windows desktop actions.
+Reply with JSON only: {"actions": [ ... ]}. Use ONLY these actions:
+{"action":"open_app","name":"<app>"}
+{"action":"open_url","url":"https://..."}
+{"action":"youtube_search","query":"<text>"}
+{"action":"google_search","query":"<text>"}
+{"action":"type","text":"<text to type>"}
+{"action":"press","key":"enter|esc|tab|backspace|up|down|left|right|space"}
+{"action":"hotkey","keys":["ctrl","s"]}
+{"action":"wait","seconds":1.5}
+{"action":"scroll","direction":"up|down"}
+{"action":"focus_window","title":"<part of window title>"}
+{"action":"take_screenshot"}
+Rules: real values only, no placeholders. After open_app add a wait of 1.5-3 seconds before typing.
+If the request cannot be done with these actions, reply {"actions": []}."""
+
+_EXAMPLES = """Request: open notepad and type hello
+{"actions":[{"action":"open_app","name":"notepad"},{"action":"wait","seconds":1.5},{"action":"type","text":"hello"}]}
+Request: save this file
+{"actions":[{"action":"hotkey","keys":["ctrl","s"]}]}
+Request: play lofi beats on youtube
+{"actions":[{"action":"youtube_search","query":"lofi beats"}]}"""
+
+
 def _ollama_is_running() -> bool:
-    """
-    Pings Ollama's tags endpoint to verify the daemon is up.
-    Returns True if reachable, False otherwise.
-    This runs in < 200ms and prevents the 10-second hang that WinError 10061 causes.
-    """
+    """False only if nothing is listening. A slow reply means Ollama is busy, not down."""
     try:
-        resp = requests.get(
-            "http://localhost:11434/api/tags",
-            timeout=1.5         # 1.5s — fail fast
-        )
-        return resp.status_code == 200
-    except Exception:
+        return requests.get(f"{config.OLLAMA_HOST}/api/tags", timeout=3).status_code == 200
+    except requests.Timeout:
+        return True
+    except requests.RequestException:
         return False
 
-# ─────────────────────────────────────────────────────────────────────────────
 
-_PROMPT_TEMPLATE = """You are a Windows desktop automation assistant. Convert the user's command into a JSON array of actions.
-
-SUPPORTED ACTIONS (use ONLY these, no other keys or comments):
-- {{"action": "open_app", "name": "<app name>"}}           — Open any app via Start menu
-- {{"action": "run_command", "cmd": "<shell cmd>"}}        — Run a Windows shell command
-- {{"action": "open_url", "url": "<full url>"}}            — Open a URL in browser
-- {{"action": "open_start_menu"}}                          — Press the Windows key
-- {{"action": "type", "text": "<text to type>"}}           — Type text
-- {{"action": "press", "key": "<key>"}}                    — Press a key (enter, esc, tab, win, etc.)
-- {{"action": "hotkey", "keys": ["ctrl", "l"]}}            — Press a keyboard shortcut
-- {{"action": "wait", "seconds": <number>}}                — Wait N seconds
-- {{"action": "click", "x": <int>, "y": <int>}}           — Click at screen coordinates
-- {{"action": "scroll", "direction": "down", "amount": 3}} — Scroll up or down
-- {{"action": "focus_window", "title": "<window title>"}}  — Bring a window to front
-- {{"action": "take_screenshot"}}                          — Capture the screen
-- {{"action": "youtube_search", "query": "<search term>"}} — Search YouTube in browser
-
-RULES:
-1. Output ONLY a valid JSON array. No markdown, no code fences, no comments, no explanation.
-2. Do NOT use placeholder values like <X coordinate>. Use real numbers or omit the action.
-3. For opening apps like Spotify, Notepad, Chrome — use "open_app" with the app name.
-4. For playing music on Spotify, open it first then use the search hotkey and type the song.
-5. Every value must be a concrete string or number. Never leave angle-bracket placeholders.
-
-EXAMPLES:
-
-Command: "open notepad and type hello"
-[
-  {{"action": "open_app", "name": "notepad"}},
-  {{"action": "wait", "seconds": 1.5}},
-  {{"action": "type", "text": "hello"}}
-]
-
-Command: "open spotify and play shape of you"
-[
-  {{"action": "open_app", "name": "spotify"}},
-  {{"action": "wait", "seconds": 3}},
-  {{"action": "hotkey", "keys": ["ctrl", "l"]}},
-  {{"action": "wait", "seconds": 0.5}},
-  {{"action": "type", "text": "shape of you"}},
-  {{"action": "press", "key": "enter"}}
-]
-
-Command: "search youtube for lo-fi music"
-[
-  {{"action": "youtube_search", "query": "lo-fi music"}}
-]
-
-Command: "take a screenshot"
-[
-  {{"action": "take_screenshot"}}
-]
-
-Now convert this command:
-"{command}"
-
-Output ONLY the JSON array, nothing else:"""
-
-
-def plan_actions(command: str) -> list:
-    """
-    Converts a natural-language command into a list of desktop automation actions
-    by querying the local Ollama LLM.
-
-    Returns [] if Ollama is down, the model is missing, or parsing fails.
-    """
-    # ── Fast pre-flight check ───────────────────────────────────────────────
+def _generate(prompt: str, system: str, *, json_mode: bool, max_tokens: int, temperature: float) -> str | None:
     if not _ollama_is_running():
-        logger.error(
-            "Ollama is NOT running on localhost:11434.\n"
-            "  ► To start it, open a terminal and run:  ollama serve\n"
-            "  ► If ollama is not installed: https://ollama.ai\n"
-            "  ► After starting, pull the model:  ollama pull phi3:mini"
-        )
-        print(
-            "\n[Planner] ❌ Ollama is not running.\n"
-            "  Fix: open a new terminal and run →  ollama serve\n"
-            "  Then retry your command.\n"
-        )
-        return []
-
-    prompt = _PROMPT_TEMPLATE.format(command=command)
-
+        logger.error("Ollama is not running. Start it with: ollama serve")
+        return None
+    payload: dict[str, Any] = {
+        "model": config.MODEL_NAME,
+        "system": system,
+        "prompt": prompt,
+        "stream": False,
+        "keep_alive": config.LLM_KEEP_ALIVE,
+        "options": {"num_predict": max_tokens, "temperature": temperature},
+    }
+    if json_mode:
+        payload["format"] = "json"
     try:
-        response = requests.post(
-            config.OLLAMA_URL,
-            json={
-                "model": config.MODEL_NAME,
-                "prompt": prompt,
-                "stream": False,
-                "options": {
-                    "num_predict": 300,
-                    "temperature": 0.1   # Low temp = deterministic, fewer hallucinations
-                }
-            },
-            timeout=config.LLM_TIMEOUT  # 6s default — prevents blocking the voice loop
-        )
-        response.raise_for_status()
-        result = response.json()
-        output_text = result.get('response', '').strip()
-
-        # Strip markdown code fences if the model wrapped the output anyway
-        output_text = re.sub(r'^```(?:json)?\s*', '', output_text, flags=re.IGNORECASE)
-        output_text = re.sub(r'\s*```$', '', output_text)
-        output_text = output_text.strip()
-
-        # Remove single-line // comments (invalid in JSON but common LLM output)
-        output_text = re.sub(r'//[^\n]*', '', output_text)
-
-        # Remove trailing commas before ] or } (common LLM mistake)
-        output_text = re.sub(r',\s*([\]\}])', r'\1', output_text)
-
-        # Extract first JSON array from text
-        json_match = re.search(r'\[.*\]', output_text, re.DOTALL)
-        json_str = json_match.group(0) if json_match else output_text
-
-        actions = json.loads(json_str)
-
-        if isinstance(actions, list):
-            return actions
-        elif isinstance(actions, dict):
-            for key in ("actions", "steps", "plan"):
-                if key in actions and isinstance(actions[key], list):
-                    return actions[key]
-
-        logger.error("Could not extract a valid JSON array from LLM response.")
-        return []
-
-    except json.JSONDecodeError as je:
-        logger.error(f"Failed to parse JSON from LLM output: {je}\nRaw: {output_text}")
-        return []
-
-    except requests.exceptions.Timeout:
-        logger.error(f"Ollama request timed out after {config.LLM_TIMEOUT}s.")
-        print(f"\n[Planner] ⏱ Ollama took too long (>{config.LLM_TIMEOUT}s). Try a simpler command or increase SURF_LLM_TIMEOUT.\n")
-        return []
-
-    except requests.RequestException as e:
-        if getattr(getattr(e, 'response', None), 'status_code', None) == 404:
+        r = requests.post(config.OLLAMA_URL, json=payload, timeout=config.LLM_TIMEOUT)
+        if r.status_code == 404:
             logger.error(f"Model '{config.MODEL_NAME}' not found. Run: ollama pull {config.MODEL_NAME}")
-            print(f"\n[Planner] ❌ Model '{config.MODEL_NAME}' not found in Ollama.\n  Fix: ollama pull {config.MODEL_NAME}\n")
-        else:
-            logger.error(f"Ollama request error: {e}")
+            return None
+        r.raise_for_status()
+        return r.json().get("response", "").strip()
+    except requests.Timeout:
+        logger.error(f"Ollama took longer than {config.LLM_TIMEOUT:.0f}s.")
+    except requests.RequestException as e:
+        logger.error(f"Ollama request failed: {e}")
+    return None
+
+
+def warm_up() -> None:
+    """Load the model into memory in the background (first real request is then fast)."""
+
+    def _run() -> None:
+        if _generate("hi", "Reply with one word.", json_mode=False, max_tokens=1, temperature=0) is not None:
+            logger.info(f"LLM '{config.MODEL_NAME}' is warm.")
+
+    threading.Thread(target=_run, daemon=True, name="LLMWarmUp").start()
+
+
+def validate_actions(raw: Any) -> list[dict[str, Any]]:
+    """Keep only well-formed, allowlisted actions. Unknown or malformed steps are dropped."""
+    if isinstance(raw, dict):
+        raw = next((raw[k] for k in ("actions", "steps", "plan") if isinstance(raw.get(k), list)), [])
+    if not isinstance(raw, list):
+        return []
+    valid: list[dict[str, Any]] = []
+    for step in raw[:MAX_STEPS]:
+        if not isinstance(step, dict):
+            continue
+        name = step.get("action")
+        fields = ALLOWED_ACTIONS.get(name)
+        if fields is None:
+            logger.warning(f"Dropping non-allowlisted action from plan: {name!r}")
+            continue
+        ok = True
+        if name == "wait" and isinstance(step.get("seconds"), str):
+            try:  # small models often write "2" instead of 2
+                step = {**step, "seconds": float(step["seconds"])}
+            except ValueError:
+                pass
+        for field, kind in fields.items():
+            value = step.get(field)
+            if not isinstance(value, kind) or (isinstance(value, str) and (not value.strip() or re.fullmatch(r"<.*>", value.strip()))):
+                ok = False
+                break
+        if not ok:
+            logger.warning(f"Dropping malformed step: {step}")
+            continue
+        if name == "wait":
+            step = {**step, "seconds": max(0.0, min(float(step["seconds"]), MAX_WAIT_SEC))}
+        if name == "hotkey" and not all(isinstance(k, str) for k in step["keys"]):
+            continue
+        valid.append(step)
+    return valid
+
+
+def plan_actions(command: str) -> list[dict[str, Any]]:
+    """Natural-language command -> validated action list ([] if Ollama is unavailable)."""
+    text = _generate(
+        f"{_EXAMPLES}\nRequest: {command}\n",
+        _SYSTEM,
+        json_mode=True,
+        max_tokens=250,
+        temperature=0.1,
+    )
+    if not text:
+        return []
+    try:
+        return validate_actions(json.loads(text))
+    except json.JSONDecodeError:
+        match = re.search(r"\{.*\}|\[.*\]", text, re.DOTALL)
+        if match:
+            try:
+                return validate_actions(json.loads(match.group(0)))
+            except json.JSONDecodeError:
+                pass
+        logger.error(f"Planner returned invalid JSON: {text[:200]}")
         return []
 
-    except Exception as e:
-        logger.error(f"Unexpected planner error: {e}", exc_info=True)
-        return []
+
+def ask(question: str) -> str | None:
+    """Short answer suitable for speaking aloud."""
+    answer = _generate(
+        question,
+        "You are Surf, a concise voice assistant. Answer in at most two short sentences of plain "
+        "spoken English: no markdown, lists, or emojis. If you don't know or it needs live data "
+        "(news, weather, prices), say so briefly.",
+        json_mode=False,
+        max_tokens=120,
+        temperature=0.4,
+    )
+    return _plain(answer) if answer else None
 
 
+def compose(request: str) -> str | None:
+    """Text to type for requests like 'a short email to my manager saying I'll be late'."""
+    text = _generate(
+        f"Write {request}.",
+        "Write exactly what was asked, ready to paste. No preamble, no title line unless asked, "
+        "no markdown. Keep it short unless a length is given.",
+        json_mode=False,
+        max_tokens=350,
+        temperature=0.7,
+    )
+    return text.strip().strip('"') if text else None
+
+
+def _plain(text: str) -> str:
+    text = re.sub(r"[*_#`>]+", "", text)
+    return re.sub(r"\s+", " ", text).strip()

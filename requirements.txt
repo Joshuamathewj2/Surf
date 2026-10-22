@@ -1,14 +1,19 @@
-pyautogui
-pygetwindow
-requests
-rapidfuzz
+# Voice
+faster-whisper>=1.0
+openwakeword>=0.6
 sounddevice
 numpy
-faster-whisper
+# Speaking
+pyttsx3
+pywin32; sys_platform == "win32"
+# Desktop control
+pyautogui
+pygetwindow
+# Matching / LLM / vision
+rapidfuzz
+requests
 pytesseract
 Pillow
-pyttsx3
+# Tray + HUD
 pystray
-openwakeword
-plyer
 PyQt5

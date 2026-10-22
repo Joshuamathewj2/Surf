@@ -1,55 +1,57 @@
 """
 wake/detector.py
-Wake word detector using openwakeword and sounddevice.
-Listens continuously for wake word triggers at ~1% CPU without requiring PyAudio.
+"Hey Jarvis" wake word with openWakeWord (runs on CPU at ~1-2% load).
+
+The previous version loaded openWakeWord's default Model(), whose model files were
+never downloaded, so it logged a warning and slept forever: the daemon could never
+wake. It would also have reacted to every bundled phrase ("alexa", "timer", ...).
+Now exactly one wake word is loaded and its model files are fetched on first use.
 """
-import time
-import threading
 import numpy as np
+
+from core import config
 from core.logger import get_logger
 
 logger = get_logger("wake")
 
-def start_listening(callback):
-    """
-    Starts the wake word detector stream using sounddevice and openwakeword.
-    """
-    def _listen():
-        try:
-            import sounddevice as sd
-            import openwakeword
-            from openwakeword.model import Model
+FRAME = 1280  # openWakeWord expects 80 ms frames of 16 kHz int16 audio
 
-            logger.info("Initializing OpenWakeWord detector...")
-            try:
-                # Load pre-trained models (e.g. alexa or jarvis)
-                oww_model = Model(inference_framework="onnx")
-            except Exception as e:
-                logger.warning(f"Default openwakeword models unavailable ({e}). Wake word standby.")
-                while True:
-                    time.sleep(3600)
 
-            RATE = 16000
-            CHUNK = 1280
+def ensure_models(wakeword: str = config.WAKE_WORD) -> None:
+    """Download the wake-word model (and the shared feature models) if they're missing."""
+    import glob
+    import os
 
-            logger.info("[WakeWord] Detector active and listening...")
-            with sd.RawInputStream(samplerate=RATE, blocksize=CHUNK, channels=1, dtype='int16') as stream:
-                while True:
-                    data, overflowed = stream.read(CHUNK)
-                    audio_data = np.frombuffer(data, dtype=np.int16)
-                    prediction = oww_model.predict(audio_data)
+    import openwakeword
+    from openwakeword.utils import download_models
 
-                    for mdl, score in prediction.items():
-                        if score > 0.6:  # Detection threshold
-                            logger.info(f"[WakeWord] Triggered: '{mdl}' (score: {score:.2f})")
-                            callback()
-                            time.sleep(1.5)  # Refractory period to avoid duplicate triggers
-                            break
+    folder = os.path.join(os.path.dirname(openwakeword.__file__), "resources", "models")
+    have_wake = glob.glob(os.path.join(folder, f"{wakeword}*.onnx"))
+    have_features = glob.glob(os.path.join(folder, "melspectrogram.onnx")) and glob.glob(
+        os.path.join(folder, "embedding_model.onnx")
+    )
+    if not (have_wake and have_features):
+        logger.info(f"Downloading wake word model '{wakeword}' (one-time, ~4 MB)...")
+        download_models(model_names=[wakeword])
 
-        except Exception as e:
-            logger.error(f"[WakeWord Error] {e}")
-            while True:
-                time.sleep(3600)
 
-    t = threading.Thread(target=_listen, daemon=True, name="WakeWordListener")
-    t.start()
+class WakeWordDetector:
+    def __init__(self, wakeword: str = config.WAKE_WORD, threshold: float = config.WAKE_THRESHOLD):
+        from openwakeword.model import Model
+
+        ensure_models(wakeword)
+        self.wakeword = wakeword
+        self.threshold = threshold
+        self._model = Model(wakeword_models=[wakeword], inference_framework="onnx")
+
+    def score(self, frame: np.ndarray) -> float:
+        """Confidence (0-1) that the wake word just ended in this 80 ms int16 frame."""
+        prediction = self._model.predict(frame.astype(np.int16).flatten())
+        return float(max(prediction.values())) if prediction else 0.0
+
+    def detected(self, frame: np.ndarray) -> bool:
+        return self.score(frame) >= self.threshold
+
+    def reset(self) -> None:
+        """Clear the model's rolling audio buffer (call after handling a command)."""
+        self._model.reset()

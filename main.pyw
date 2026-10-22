@@ -1,64 +1,31 @@
 """
 main.pyw
-Background daemon executable for Surf AI.
-Runs silently with system tray icon and wake word activation.
+Background mode: no console window, a tray icon, and always listening for "Hey Jarvis".
+Start it with pythonw.exe (double-click) or add a shortcut to shell:startup.
 """
 import os
 import sys
-import time
 
-from tray.icon import start_tray_thread
-from agent.router import route_command
-from voice.recognizer import record_and_transcribe, load_model
-from agent.speaker import speak
-from skills.registry import dispatch_action
+os.chdir(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.getcwd())
 
-def handle_wake_word():
-    speak("Yes?")
-    command = record_and_transcribe()
-    if not command:
-        return
+from agent.pipeline import handle_command  # noqa: E402
+from core.logger import get_logger  # noqa: E402
+from llm.planner import warm_up  # noqa: E402
+from tray.icon import start_tray_thread  # noqa: E402
+from voice.assistant import run_wake_loop  # noqa: E402
 
-    print(f"[Daemon] Recognized: {command}")
-    route = route_command(command)
-
-    if route.get("type") == "direct":
-        success, feedback = dispatch_action(route["action"], route)
-        if feedback:
-            speak(feedback)
-
-    elif route.get("type") == "multi":
-        for a in route.get("actions", []):
-            if a.get("type") == "direct":
-                success, feedback = dispatch_action(a["action"], a)
-                if feedback:
-                    speak(feedback)
-                time.sleep(0.15)
+logger = get_logger("daemon")
 
 if __name__ == "__main__":
-    print("[Daemon] Starting Surf AI silently...")
-    try:
-        load_model()
-    except Exception as e:
-        print(f"[Daemon] Voice model pre-load warning: {e}")
-
-    # Start system tray
+    logger.info("Surf background mode starting")
     try:
         start_tray_thread()
     except Exception as e:
-        print(f"[Daemon] Tray start warning: {e}")
-
-    # Start wake word listener
+        logger.warning(f"Tray icon unavailable: {e}")
+    warm_up()
     try:
-        from wake.detector import start_listening
-        start_listening(handle_wake_word)
+        run_wake_loop(handle_command)
     except Exception as e:
-        print(f"[Daemon] Wake word listener warning: {e}")
-
-    # Keep alive
-    try:
-        while True:
-            time.sleep(1)
-    except KeyboardInterrupt:
-        pass
+        logger.error(f"Wake loop stopped: {e}", exc_info=True)
     os._exit(0)
