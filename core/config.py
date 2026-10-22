@@ -26,9 +26,16 @@ AUDIO_SAMPLE_RATE = 16000
 AUDIO_CHANNELS = 1
 AUDIO_CHUNK_SIZE = 1024
 VAD_ENERGY_THRESHOLD = float(os.getenv("SURF_VAD_THRESHOLD", "0.015"))
-VAD_SILENCE_LIMIT_SEC = float(os.getenv("SURF_SILENCE_LIMIT", "0.55"))  # Stop 550ms after speech ends
-VAD_MIN_RECORD_SEC = 0.4   # Minimum audio duration before silence can trigger
-VAD_MAX_RECORD_SEC = 8.0   # Absolute ceiling to avoid infinite recording
+# --- KEY FIX: was 0.55s — caused premature cutoff on natural mid-sentence pauses ---
+# 1.2s means Surf waits a full beat after you stop talking before cutting off.
+# For compound commands ("open notepad and write..."), you need this headroom.
+VAD_SILENCE_LIMIT_SEC = float(os.getenv("SURF_SILENCE_LIMIT", "1.2"))
+# Must buffer at least 0.8s before silence detection arms itself
+VAD_MIN_RECORD_SEC = float(os.getenv("SURF_VAD_MIN", "0.8"))
+# 14s ceiling: long enough for any realistic command, prevents runaway capture
+VAD_MAX_RECORD_SEC = float(os.getenv("SURF_VAD_MAX", "14.0"))
+# How long to wait for the user to START speaking before giving up (was hardcoded 3.5s)
+VAD_MAX_WAIT_SEC = float(os.getenv("SURF_VAD_MAX_WAIT", "5.0"))
 
 # --- OCR / Vision Settings ---
 TESSERACT_PATH = os.getenv("TESSERACT_PATH", r"C:\Program Files\Tesseract-OCR\tesseract.exe")

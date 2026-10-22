@@ -13,16 +13,20 @@ logger = get_logger("audio")
 
 def record_audio_with_vad(
     sample_rate: int = config.AUDIO_SAMPLE_RATE,
-    silence_limit_sec: float = config.VAD_SILENCE_LIMIT_SEC,
-    min_record_sec: float = config.VAD_MIN_RECORD_SEC,
-    max_wait_speech_sec: float = 3.5,  # Stop after 3.5s if user hasn't started speaking
-    max_record_sec: float = 6.0        # Max duration for a single command
+    # --- Pull ALL timing values from config so they're tunable without touching code ---
+    silence_limit_sec: float = config.VAD_SILENCE_LIMIT_SEC,   # 1.2s — wait a full beat after speech ends
+    min_record_sec: float = config.VAD_MIN_RECORD_SEC,          # 0.8s — arm silence detection only after this
+    max_wait_speech_sec: float = config.VAD_MAX_WAIT_SEC,       # 5.0s — give up if no speech starts
+    max_record_sec: float = config.VAD_MAX_RECORD_SEC           # 14.0s — absolute recording ceiling
 ) -> np.ndarray:
     """
     Dynamically listens to the microphone:
-    1. Calibrates to ambient room noise in the first ~150ms.
+    1. Calibrates to ambient room noise in the first ~250ms (5 chunks).
     2. Detects speech onset automatically.
-    3. Cuts off audio ~500ms after speech ends.
+    3. Cuts off audio only after VAD_SILENCE_LIMIT_SEC of sustained silence post-speech.
+
+    Key parameters are all config-driven — tune them in core/config.py or via env vars
+    without touching this file.
     """
     chunk_size = config.AUDIO_CHUNK_SIZE
     frames = []
@@ -40,20 +44,30 @@ def record_audio_with_vad(
 
     try:
         with sd.InputStream(samplerate=sample_rate, channels=config.AUDIO_CHANNELS, dtype='float32', blocksize=chunk_size) as stream:
-            # 1. Quick ambient noise calibration (first 3 chunks ~ 150ms)
-            for _ in range(3):
+            # 1. Ambient noise calibration: use 5 chunks (~250ms) for a more stable floor.
+            # More samples = less chance of a transient spike inflating the noise floor.
+            N_CALIBRATION_CHUNKS = 5
+            for _ in range(N_CALIBRATION_CHUNKS):
                 chk, _ = stream.read(chunk_size)
                 flat = chk.flatten()
                 calibration_frames.append(flat)
                 frames.append(flat)
 
             ambient_rms = np.sqrt(np.mean(np.concatenate(calibration_frames) ** 2))
-            # Set dynamic threshold above ambient floor (min 0.0035, max 0.02)
-            dynamic_threshold = float(np.clip(ambient_rms * 1.8, 0.0035, 0.025))
-            logger.debug(f"Ambient noise floor: {ambient_rms:.5f}, Speech trigger threshold: {dynamic_threshold:.5f}")
+
+            # Multiplier raised from 1.8x → 2.2x.
+            # WHY: 1.8x was triggering on soft breathing/HVAC and treating it as speech onset.
+            # That produced very short "captures" (< 1s) of near-silence which Whisper then
+            # hallucinated as words (e.g. "Head soft."). 2.2x means only clear voiced speech
+            # crosses the gate. Clamp range keeps it sane on both very quiet and noisy mics.
+            dynamic_threshold = float(np.clip(ambient_rms * 2.2, 0.004, 0.030))
+            logger.debug(
+                f"Ambient RMS: {ambient_rms:.5f} | Speech gate: {dynamic_threshold:.5f} "
+                f"| Silence window: {silence_limit_sec:.1f}s | Max: {max_record_sec:.0f}s"
+            )
 
             # 2. Main recording loop
-            for chunk_idx in range(len(calibration_frames), max_chunks):
+            for chunk_idx in range(N_CALIBRATION_CHUNKS, max_chunks):
                 chunk, overflowed = stream.read(chunk_size)
                 flat_chunk = chunk.flatten()
                 frames.append(flat_chunk)
@@ -63,19 +77,25 @@ def record_audio_with_vad(
                 if rms > dynamic_threshold:
                     if not speech_started:
                         print("  >> Hearing you speak...", flush=True)
-                        logger.debug(f"Speech detected (RMS: {rms:.4f} > {dynamic_threshold:.4f})")
+                        logger.debug(f"Speech onset (RMS: {rms:.4f} > gate: {dynamic_threshold:.4f})")
                         speech_started = True
+                    # Reset the silence counter each time speech energy is detected
                     silent_chunks = 0
+
                 else:
                     if speech_started:
                         silent_chunks += 1
+                        # Only fire cutoff if we've recorded the minimum required audio
                         if silent_chunks >= silence_chunks_limit and chunk_idx >= min_chunks:
-                            logger.debug("Silence cutoff reached after speech. Ending capture.")
+                            logger.debug(
+                                f"Silence cutoff: {silent_chunks} quiet chunks "
+                                f"(>= limit {silence_chunks_limit}) after {chunk_idx} total chunks."
+                            )
                             break
                     else:
-                        # User has not spoken yet; check if wait timeout reached
+                        # Speech hasn't started yet — check the onset timeout
                         if chunk_idx >= max_initial_wait_chunks:
-                            logger.debug("No speech detected within initial wait window.")
+                            logger.debug("No speech detected within onset-wait window. Aborting.")
                             break
 
     except Exception as e:
