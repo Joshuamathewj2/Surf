@@ -21,10 +21,17 @@ def run(text, rec, monkeypatch=None):
 
 def test_direct_command_dispatches_and_speaks():
     rec = Recorder()
-    out = run("hey jarvis open chrome", rec)
+    out = run("hey surf open chrome", rec)
     assert out.ok and out.route == "direct"
     assert rec.calls[0]["action"] == "open_chrome"
     assert rec.spoken == ["did open_chrome"]
+
+
+def test_empty_wake_word_replies_with_voice():
+    rec = Recorder()
+    out = run("hey surf", rec)
+    assert out.ok and out.route == "empty"
+    assert rec.spoken == ["Yes? I'm listening."]
 
 
 def test_blocked_command_never_dispatches():
@@ -96,3 +103,17 @@ def test_blank_notepad_detection():
     assert _is_blank_notepad("Untitled - Notepad")
     assert not _is_blank_notepad("PARALLEL_PLAN.md - Notepad")
     assert not _is_blank_notepad("Untitled - Paint")
+
+
+def test_quit_says_goodbye_and_closes_surf(monkeypatch):
+    quits = []
+    monkeypatch.setattr(pipeline, "_quit", lambda: quits.append(True))
+    for text in ("quit", "hey surf exit", "close surf", "bye surf"):
+        rec = Recorder()
+        out = run(text, rec)
+        assert out.ok and not rec.calls, text
+        assert rec.spoken == ["Goodbye!"], text
+    assert len(quits) == 4
+    rec = Recorder()
+    run("quit chrome", rec)  # closing an app is not quitting Surf
+    assert rec.calls and not rec.spoken == ["Goodbye!"]

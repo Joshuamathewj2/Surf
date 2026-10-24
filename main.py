@@ -2,14 +2,13 @@
 main.py
 Surf entry point.
 
-    python main.py            interactive menu
-    python main.py --voice    hands-free: say "Hey Jarvis" + a command
-    python main.py --text     type commands
-    python main.py --hud      also show the ArcReactor HUD (combine with either mode)
+    python main.py              interactive menu
+    python main.py --voice      hands-free: say "Hey Surf" + a command, or click the robot
+    python main.py --text       type commands
+    python main.py --no-robot   without the robot companion on the taskbar
 """
 import argparse
 import os
-import subprocess
 import sys
 
 # Never let the Windows console crash on Unicode output.
@@ -21,25 +20,21 @@ if hasattr(sys.stdout, "reconfigure"):
         pass
 
 
-def launch_hud_process() -> None:
-    """Run the PyQt5 HUD in its own process (Qt and faster-whisper must not share one)."""
-    try:
-        hud_script = os.path.join(os.path.dirname(__file__), "interface", "hud.py")
-        subprocess.Popen([sys.executable, hud_script])
-    except Exception as e:
-        print(f"[Warning] Could not start HUD: {e}")
-
-
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Surf: local voice assistant for Windows")
+    parser = argparse.ArgumentParser(description="Surf: local assistant for Windows")
     group = parser.add_mutually_exclusive_group()
-    group.add_argument("--voice", action="store_true", help='hands-free mode ("Hey Jarvis")')
+    group.add_argument("--voice", action="store_true", help='hands-free mode ("Hey Surf")')
     group.add_argument("--text", action="store_true", help="type commands")
-    parser.add_argument("--hud", action="store_true", help="show the HUD overlay")
+    parser.add_argument("--no-robot", action="store_true", help="don't show the robot companion")
+    parser.add_argument("--hud", action="store_true", help=argparse.SUPPRESS)  # old flag: the robot is on by default
     args = parser.parse_args()
 
-    if args.hud or os.getenv("SURF_HUD") == "1":
-        launch_hud_process()
+    from core import config
+
+    if config.ROBOT and not args.no_robot and os.getenv("SURF_HUD") != "0":
+        from interface.bus import launch_overlay
+
+        launch_overlay()  # its own process: Qt and faster-whisper must not share one
 
     from agent.loop import BANNER, run, run_text, run_voice
 

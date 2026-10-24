@@ -1,0 +1,275 @@
+{
+ "frames": {
+  "idle": [
+   "idle_0.png",
+   "idle_1.png",
+   "idle_2.png",
+   "idle_3.png",
+   "idle_4.png",
+   "idle_5.png"
+  ],
+  "blink": [
+   "blink_0.png"
+  ],
+  "sit": [
+   "sit_0.png"
+  ],
+  "think": [
+   "think_0.png"
+  ],
+  "walk_right": [
+   "walk_right_0.png",
+   "walk_right_1.png",
+   "walk_right_2.png",
+   "walk_right_3.png",
+   "walk_right_4.png",
+   "walk_right_5.png"
+  ],
+  "walk_left": [
+   "walk_left_0.png",
+   "walk_left_1.png",
+   "walk_left_2.png",
+   "walk_left_3.png",
+   "walk_left_4.png",
+   "walk_left_5.png"
+  ],
+  "run_right": [
+   "walk_right_0.png",
+   "walk_right_1.png",
+   "walk_right_2.png",
+   "walk_right_3.png",
+   "walk_right_4.png",
+   "walk_right_5.png"
+  ],
+  "run_left": [
+   "walk_left_0.png",
+   "walk_left_1.png",
+   "walk_left_2.png",
+   "walk_left_3.png",
+   "walk_left_4.png",
+   "walk_left_5.png"
+  ],
+  "jump": [
+   "idle_0.png",
+   "idle_1.png",
+   "idle_2.png",
+   "idle_3.png",
+   "idle_4.png",
+   "idle_5.png"
+  ],
+  "land": [
+   "idle_0.png",
+   "idle_1.png",
+   "idle_2.png",
+   "idle_3.png",
+   "idle_4.png",
+   "idle_5.png"
+  ],
+  "dance": [
+   "idle_0.png",
+   "idle_1.png",
+   "idle_2.png",
+   "idle_3.png",
+   "idle_4.png",
+   "idle_5.png"
+  ],
+  "wave": [
+   "idle_0.png",
+   "idle_1.png",
+   "idle_2.png",
+   "idle_3.png",
+   "idle_4.png",
+   "idle_5.png"
+  ],
+  "hello": [
+   "idle_0.png",
+   "idle_1.png",
+   "idle_2.png",
+   "idle_3.png",
+   "idle_4.png",
+   "idle_5.png"
+  ],
+  "bye": [
+   "idle_0.png",
+   "idle_1.png",
+   "idle_2.png",
+   "idle_3.png",
+   "idle_4.png",
+   "idle_5.png"
+  ],
+  "happy": [
+   "idle_0.png",
+   "idle_1.png",
+   "idle_2.png",
+   "idle_3.png",
+   "idle_4.png",
+   "idle_5.png"
+  ],
+  "clap": [
+   "idle_0.png",
+   "idle_1.png",
+   "idle_2.png",
+   "idle_3.png",
+   "idle_4.png",
+   "idle_5.png"
+  ],
+  "heart": [
+   "idle_0.png",
+   "idle_1.png",
+   "idle_2.png",
+   "idle_3.png",
+   "idle_4.png",
+   "idle_5.png"
+  ],
+  "cheer": [
+   "idle_0.png",
+   "idle_1.png",
+   "idle_2.png",
+   "idle_3.png",
+   "idle_4.png",
+   "idle_5.png"
+  ],
+  "victory": [
+   "idle_0.png",
+   "idle_1.png",
+   "idle_2.png",
+   "idle_3.png",
+   "idle_4.png",
+   "idle_5.png"
+  ],
+  "sad": [
+   "think_0.png"
+  ],
+  "fail": [
+   "think_0.png"
+  ],
+  "confused": [
+   "think_0.png"
+  ],
+  "point": [
+   "think_0.png"
+  ],
+  "lightbulb": [
+   "think_0.png"
+  ],
+  "surprised": [
+   "blink_0.png"
+  ],
+  "angry": [
+   "blink_0.png"
+  ],
+  "sleep": [
+   "sit_0.png"
+  ]
+ },
+ "size": {
+  "idle": [
+   297,
+   420
+  ],
+  "blink": [
+   295,
+   420
+  ],
+  "sit": [
+   334,
+   362
+  ],
+  "think": [
+   284,
+   421
+  ],
+  "walk_right": [
+   263,
+   432
+  ],
+  "walk_left": [
+   263,
+   432
+  ],
+  "run_right": [
+   263,
+   432
+  ],
+  "run_left": [
+   263,
+   432
+  ],
+  "jump": [
+   297,
+   420
+  ],
+  "land": [
+   297,
+   420
+  ],
+  "dance": [
+   297,
+   420
+  ],
+  "wave": [
+   297,
+   420
+  ],
+  "hello": [
+   297,
+   420
+  ],
+  "bye": [
+   297,
+   420
+  ],
+  "happy": [
+   297,
+   420
+  ],
+  "clap": [
+   297,
+   420
+  ],
+  "heart": [
+   297,
+   420
+  ],
+  "cheer": [
+   297,
+   420
+  ],
+  "victory": [
+   297,
+   420
+  ],
+  "sad": [
+   284,
+   421
+  ],
+  "fail": [
+   284,
+   421
+  ],
+  "confused": [
+   284,
+   421
+  ],
+  "point": [
+   284,
+   421
+  ],
+  "lightbulb": [
+   284,
+   421
+  ],
+  "surprised": [
+   295,
+   420
+  ],
+  "angry": [
+   295,
+   420
+  ],
+  "sleep": [
+   334,
+   362
+  ]
+ }
+}

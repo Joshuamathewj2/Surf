@@ -75,6 +75,8 @@ class BrowserSkill(BaseSkill):
                 return self._close_chrome()
             elif intent in ("youtube_search", "open_youtube"):
                 query = slots.get("query", "").strip()
+                if slots.get("play") and query:
+                    return self._youtube_play(query)
                 return self._youtube_search(query)
             elif intent == "google_search":
                 query = slots.get("query", "").strip()
@@ -139,6 +141,16 @@ class BrowserSkill(BaseSkill):
         logger.info(f"Opening YouTube search for: '{query}'")
         webbrowser.open(url)
         return True, f"Searching YouTube for {query}"
+
+    def _youtube_play(self, query: str) -> Tuple[bool, str]:
+        from skills.web_skill import first_youtube_video
+
+        video = first_youtube_video(query)
+        if not video:
+            return self._youtube_search(query)
+        logger.info(f"Playing top YouTube result for '{query}': {video}")
+        webbrowser.open(f"https://www.youtube.com/watch?v={video}")
+        return True, f"Playing {query} on YouTube"
 
     def _google_search(self, query: str) -> Tuple[bool, str]:
         if not query:

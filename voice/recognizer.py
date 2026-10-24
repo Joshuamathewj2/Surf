@@ -30,7 +30,7 @@ HALLUCINATIONS = {
 
 # Biases decoding toward command vocabulary (app names are otherwise often misspelt).
 COMMAND_PROMPT = (
-    "Hey Jarvis, open Notepad. Open Chrome. Search YouTube for lofi music. Play on Spotify. "
+    "Hey Surf, open Notepad. Open Chrome. Search YouTube for lofi music. Play on Spotify. "
     "Take a screenshot. Volume up. What time is it? Open VS Code, Calculator, File Explorer."
 )
 

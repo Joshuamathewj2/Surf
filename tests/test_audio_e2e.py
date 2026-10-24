@@ -55,9 +55,9 @@ def peak_score(detector, audio: np.ndarray) -> float:
     return best
 
 
-def test_wake_word_fires_on_hey_jarvis_only(detector):
+def test_wake_word_fires_on_hey_surf_only(detector):
     silence = np.zeros(16000, dtype=np.int16)
-    assert peak_score(detector, np.concatenate([silence, synth("Hey Jarvis"), silence])) > 0.8
+    assert peak_score(detector, np.concatenate([silence, synth("Hey Surf"), silence])) > 0.8
     assert peak_score(detector, np.concatenate([silence, synth("Open the window please"), silence])) < 0.3
     noise = (np.random.default_rng(0).standard_normal(16000 * 3) * 400).astype(np.int16)
     assert peak_score(detector, noise) < 0.3
@@ -111,7 +111,7 @@ def test_wake_loop_hands_the_spoken_command_to_the_pipeline(monkeypatch, detecto
 
     silence = np.zeros(16000, dtype=np.int16)
     room = (np.random.default_rng(2).standard_normal(16000) * 30).astype(np.int16)
-    audio = np.concatenate([room, synth("Hey Jarvis"), silence[:4000], synth("What time is it?"), silence, silence])
+    audio = np.concatenate([room, synth("Hey Surf"), silence[:4000], synth("What time is it?"), silence, silence])
     monkeypatch.setattr(sounddevice, "InputStream", lambda **kw: FakeMic(audio))
     monkeypatch.setattr(agent.speaker, "chime", lambda rising=True: None)
 

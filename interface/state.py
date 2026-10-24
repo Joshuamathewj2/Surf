@@ -1,28 +1,17 @@
 """
 interface/state.py
-Lightweight HUD state bridge using a shared temp file.
-Zero Qt dependencies: completely eliminates DLL/OpenMP collisions with faster-whisper.
+What the assistant is doing right now, published to the robot overlay.
+Zero Qt dependencies: the overlay lives in its own process (see interface/bus.py).
+
+States: idle | listening | thinking | executing | speaking | error
 """
-import os
-import json
-import tempfile
+from interface.bus import emit
 
-STATE_FILE = os.path.join(tempfile.gettempdir(), "surf_hud_state.json")
 
-def set_state(state: str, text: str = ""):
-    """Updates HUD state without importing PyQt5 in the agent process."""
-    try:
-        with open(STATE_FILE, "w", encoding="utf-8") as f:
-            json.dump({"state": state, "text": text}, f)
-    except Exception:
-        pass
+def set_state(state: str, text: str = "") -> None:
+    emit("state", state=state, text=text)
 
-def get_state() -> dict:
-    """Reads current HUD state."""
-    try:
-        if os.path.exists(STATE_FILE):
-            with open(STATE_FILE, "r", encoding="utf-8") as f:
-                return json.load(f)
-    except Exception:
-        pass
-    return {"state": "idle", "text": "IDLE"}
+
+def set_mood(mood: str) -> None:
+    """A one-off reaction from the robot: happy, sad, dance, heart, wave, confused..."""
+    emit("mood", mood=mood)

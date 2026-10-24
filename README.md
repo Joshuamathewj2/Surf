@@ -1,23 +1,22 @@
 # Surf: a local voice assistant for Windows
 
-Say **"Hey Jarvis"**, then a command. Surf opens apps, searches the web, plays music, types or writes for you, answers questions, and drives everyday keyboard shortcuts. Everything runs **on your PC**: wake word, speech recognition and the language model are all local, so nothing you say leaves the machine.
+Say **"Hey Surf"**, then a command. Surf opens apps, searches the web, plays music, types or writes for you, answers questions, speaks voice replies, and drives everyday keyboard shortcuts. Everything runs **on your PC**: wake word, speech recognition and the language model are all local, so nothing you say leaves the machine.
 
 ```
-"Hey Jarvis, open Chrome and search YouTube for lofi beats"
-"Hey Jarvis, what time is it?"
-"Hey Jarvis, open Notepad and write a short email saying I'll be late"
-"Hey Jarvis, who wrote the Ramayana?"
-"Hey Jarvis, save this file"          "...go back"          "...volume down"
+"Hey Surf, open Chrome and search YouTube for lofi beats"
+"Hey Surf, what time is it?"
+"Hey Surf, open Notepad and write a short email saying I'll be late"
+"Hey Surf, who wrote the Ramayana?"
+"Hey Surf, save this file"          "...go back"          "...volume down"
 ```
 
 ## How it works
 
 ```mermaid
 flowchart LR
-    Mic((Mic)) --> Wake["Wake word<br/>openWakeWord: hey jarvis"]
-    Wake -->|chime| EP["End-of-speech detector<br/>(peak-relative VAD)"]
+    Mic((Mic)) --> Wake["Wake word<br/>openWakeWord: hey surf"]
+    Wake -->|chime + voice| EP["End-of-speech detector<br/>(peak-relative VAD)"]
     EP --> STT["Speech to text<br/>faster-whisper + Silero VAD<br/>+ hallucination filter"]
-    STT --> Safety{"Safety gate"}
     Safety --> Router["Intent router<br/>~70 phrasings, microseconds"]
     Router -->|known intent| Skills["Skills: apps, browser, notes,<br/>shortcuts, system, info"]
     Router -->|question| Ask["Local LLM answer"]
@@ -25,7 +24,7 @@ flowchart LR
     Skills & Ask & Plan --> TTS["Spoken reply"]
 ```
 
-1. **Wake word.** openWakeWord listens for "hey jarvis" on a single 80 ms audio stream (about 1–2% CPU). A rising chime means Surf is listening.
+1. **Wake word.** openWakeWord listens for "hey surf" on a single 80 ms audio stream (about 1–2% CPU). Surf provides audio cues and spoken voice replies.
 2. **End of speech.** Surf stops recording about 0.9 s after you stop talking. It compares loudness with *your own speech peak*, not just room noise, so a fan or AC doesn't keep it recording.
 3. **Transcription.** faster-whisper (`base.en`, int8 on CPU) with built-in voice-activity filtering. Low-confidence segments and Whisper's well-known subtitle hallucinations ("Thank you very much.", "Thanks for watching!") are discarded instead of being executed.
 4. **Routing.** A deterministic router handles common commands instantly, including compound ones ("open notepad and type …"). It only splits on "and" when a new action follows, so "play rock and roll on YouTube" stays one search.
@@ -62,7 +61,7 @@ On first run Surf downloads the wake-word model (~4 MB) and the Whisper model (~
 ## Run
 
 ```powershell
-python main.py --voice     # hands-free: "Hey Jarvis, ..."
+python main.py --voice     # hands-free: "Hey Surf, ..."
 python main.py --text      # type commands (no microphone needed)
 python main.py --voice --hud   # with the animated HUD overlay
 pythonw main.pyw           # background: tray icon, no console, always listening
@@ -76,7 +75,7 @@ All settings live in `core/config.py` and can be overridden with environment var
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `SURF_WAKE_WORD` | `hey_jarvis` | Any openWakeWord model name |
+| `SURF_WAKE_WORD` | `hey_surf` | Any openWakeWord model name |
 | `SURF_WAKE_THRESHOLD` | `0.5` | Raise if it wakes by accident, lower if it misses you |
 | `SURF_VOICE_MODEL` | `base.en` | `tiny.en` = faster, `small.en` = more accurate |
 | `SURF_SILENCE_LIMIT` | `0.9` | Seconds of quiet that end a command |
@@ -93,7 +92,7 @@ pytest -m "not slow"   # 90+ fast tests: routing, safety, pipeline, end-of-speec
 pytest -m slow         # end-to-end: synthesised speech -> real wake word + Whisper models
 ```
 
-The slow tests generate speech with the Windows voice, so the whole audio pipeline is tested without anyone talking into a microphone: "Hey Jarvis" must trigger the wake word, other speech and noise must not, and a spoken compound command must transcribe and route correctly.
+The slow tests generate speech with the Windows voice, so the whole audio pipeline is tested without anyone talking into a microphone: "Hey Surf" must trigger the wake word, other speech and noise must not, and a spoken compound command must transcribe and route correctly.
 
 ## Project layout
 
@@ -101,7 +100,7 @@ The slow tests generate speech with the Windows voice, so the whole audio pipeli
 main.py / main.pyw     entry points (interactive / background)
 agent/                 pipeline, router, autocorrect, safety, speaker, app index
 voice/                 wake-word loop (assistant.py) and speech-to-text (recognizer.py)
-wake/                  openWakeWord detector
+wake/                  openWakeWord detector and models (hey_surf.onnx)
 core/                  config, audio capture + end-of-speech, desktop helpers, logging
 skills/                apps, browser, notes/writing, shortcuts, system, info
 llm/                   Ollama planner, answers, writing
@@ -113,4 +112,3 @@ interface/ tray/       HUD overlay and tray icon
 
 - Windows only (SAPI voice, Win32 window and clipboard APIs).
 - A small local model answers general-knowledge questions reasonably, but it has no live data (news, weather, prices) and planning unusual tasks can take 10–30 s on a CPU.
-- "Hey Jarvis" is openWakeWord's pre-trained model; a custom "Hey Surf" would need training your own model.

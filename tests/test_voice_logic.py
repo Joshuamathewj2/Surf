@@ -46,7 +46,7 @@ def test_single_click_is_not_speech():
 
 
 def test_known_ambient_skips_calibration():
-    # "Hey Jarvis, open notepad" in one breath: speech starts in the very first chunks.
+    # "Hey Surf, open notepad" in one breath: speech starts in the very first chunks.
     levels = [0.09] * 15 + [0.002] * 20
     states, ep = run_endpointer(levels, ambient=0.003)
     assert states[1] == "speaking"

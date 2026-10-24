@@ -6,6 +6,7 @@ anything it can't map is sent to the LLM planner as a whole (type "llm").
 import re
 from typing import Any, Dict, List
 
+from agent.intents import siri_intent
 from core.logger import get_logger
 
 logger = get_logger("router")
@@ -21,6 +22,8 @@ ACTION_STARTERS = (
     "decrease", "lower", "raise", "click", "new tab", "close tab", "go to", "switch to", "tell me",
     "what", "show", "save", "undo", "redo", "copy", "paste", "cut", "select", "refresh", "reload",
     "go back", "scroll", "zoom", "minimize", "minimise", "maximize", "maximise", "press", "print",
+    "set", "remind", "remember", "lock", "pause", "resume", "skip", "translate", "summarize", "summarise",
+    "read", "wake me",
 )
 
 # Whole-utterance phrases for everyday keyboard actions (see skills/shortcut_skill.py).
@@ -56,7 +59,7 @@ SHORTCUT_PHRASES = [
 ]
 _SHORTCUTS = [(re.compile(rf"^(?:{p})$"), intent) for p, intent in SHORTCUT_PHRASES]
 
-WAKE_PREFIXES = ("hey jarvis", "ok jarvis", "okay jarvis", "jarvis", "hey surf", "surf")
+WAKE_PREFIXES = ("hey surf", "ok surf", "okay surf", "surf", "hey jarvis", "ok jarvis", "okay jarvis", "jarvis")
 FILLER_PREFIXES = (
     "please", "can you", "could you", "would you", "will you", "i want you to", "i'd like you to",
     "i need you to", "go ahead and", "um", "uh", "okay", "ok", "so", "just", "now",
@@ -121,6 +124,27 @@ def _parse_single_intent(cmd: str) -> Dict[str, Any]:
     if not norm:
         return {"type": "empty"}
 
+    # Conversational greetings & assistance
+    if re.fullmatch(r"(?:hi|hello|hey|good (?:morning|afternoon|evening|day))", norm):
+        return {"type": "direct", "action": "greet"}
+    if re.fullmatch(r"(?:how are you(?: doing)?|how're you|how is it going)", norm):
+        return {"type": "direct", "action": "how_are_you"}
+    if re.fullmatch(r"(?:who are you|what(?:'s| is) your name)", norm):
+        return {"type": "direct", "action": "who_are_you"}
+    if re.fullmatch(r"(?:thank you(?: very much)?|thanks(?: a lot)?)", norm):
+        return {"type": "direct", "action": "thank_you"}
+    if re.fullmatch(r"(?:quit|exit)(?: surf)?|(?:close|turn off|stop) surf|(?:good)?bye surf", norm):
+        return {"type": "direct", "action": "quit_surf"}
+    if re.fullmatch(r"(?:goodbye|bye|bye bye|see you)", norm):
+        return {"type": "direct", "action": "goodbye"}
+    if re.fullmatch(r"(?:what can you do|help(?: me)?|what are your features)", norm):
+        return {"type": "direct", "action": "help"}
+
+    # Timers, reminders, weather, news, maths, media, device settings, memory, clipboard, fun
+    siri = siri_intent(norm, cmd)
+    if siri:
+        return siri
+
     # Click by on-screen text
     if norm.startswith("click "):
         return {"type": "direct", "action": "click_text", "target": norm[6:].strip().strip("\"'")}
@@ -163,7 +187,10 @@ def _parse_single_intent(cmd: str) -> Dict[str, Any]:
             norm,
         )
         if m and m.group(1).strip() not in ("youtube", ""):
-            return {"type": "direct", "action": "youtube_search", "query": m.group(1).strip()}
+            route = {"type": "direct", "action": "youtube_search", "query": m.group(1).strip()}
+            if norm.startswith(("play ", "put on ", "listen to ")):
+                route["play"] = True  # start the top result instead of showing a results page
+            return route
         m = re.search(r"youtube\s+(?:search\s+(?:for\s+)?)?(.+)", norm)
         if m:
             return {"type": "direct", "action": "youtube_search", "query": m.group(1).strip()}
@@ -178,6 +205,11 @@ def _parse_single_intent(cmd: str) -> Dict[str, Any]:
         m = re.search(r"spotify\s+(?:play\s+)?(.+)", norm)
         if m:
             return {"type": "direct", "action": "play_spotify", "query": m.group(1).strip()}
+
+    # "play <anything>" with no service named: play it on YouTube
+    m = re.match(r"^(?:play|put on|listen to)\s+(?:me\s+)?(?:some\s+)?(.+)$", norm)
+    if m:
+        return {"type": "direct", "action": "youtube_search", "query": m.group(1).strip(), "play": True}
 
     # Chrome
     if re.search(r"\bchrome\b", norm):

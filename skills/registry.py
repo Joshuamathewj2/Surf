@@ -10,6 +10,11 @@ from skills.system_skill import SystemSkill
 from skills.notes_skill import NotesSkill
 from skills.info_skill import InfoSkill
 from skills.shortcut_skill import ShortcutSkill
+from skills.timer_skill import TimerSkill
+from skills.web_skill import WebSkill
+from skills.device_skill import DeviceSkill
+from skills.memory_skill import MemorySkill
+from skills.clipboard_skill import ClipboardSkill
 from core.logger import get_logger
 
 logger = get_logger("skills.registry")
@@ -26,6 +31,11 @@ class SkillRegistry:
         self.register(NotesSkill())
         self.register(InfoSkill())
         self.register(ShortcutSkill())
+        self.register(TimerSkill())
+        self.register(WebSkill())
+        self.register(DeviceSkill())
+        self.register(MemorySkill())
+        self.register(ClipboardSkill())
 
     def register(self, skill: BaseSkill):
         self._skills.append(skill)

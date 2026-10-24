@@ -2,13 +2,15 @@
 llm/planner.py
 Local LLM (Ollama) features:
   - plan_actions(): natural language -> validated list of desktop actions
-  - ask():          short spoken answer to a question
+  - ask():          short spoken answer, aware of the conversation so far
+  - transform():    summarise / translate / explain a piece of text
   - compose():      text to type (emails, notes, poems...)
   - warm_up():      load the model in the background so the first request isn't slow
 
 Planner output is validated against an allowlist. The model can never run shell
 commands: an LLM that mishears "list files" must not be able to execute anything.
 """
+import datetime
 import json
 import re
 import threading
@@ -35,6 +37,9 @@ ALLOWED_ACTIONS: dict[str, dict[str, type | tuple[type, ...]]] = {
     "focus_window": {"title": str},
     "take_screenshot": {},
     "open_start_menu": {},
+    "set_timer": {"seconds": (int, float)},
+    "media": {"command": str},
+    "weather": {},
 }
 MAX_WAIT_SEC = 10
 MAX_STEPS = 12
@@ -52,6 +57,9 @@ Reply with JSON only: {"actions": [ ... ]}. Use ONLY these actions:
 {"action":"scroll","direction":"up|down"}
 {"action":"focus_window","title":"<part of window title>"}
 {"action":"take_screenshot"}
+{"action":"set_timer","seconds":300}
+{"action":"media","command":"play_pause|next|previous"}
+{"action":"weather"}
 Rules: real values only, no placeholders. After open_app add a wait of 1.5-3 seconds before typing.
 If the request cannot be done with these actions, reply {"actions": []}."""
 
@@ -172,18 +180,76 @@ def plan_actions(command: str) -> list[dict[str, Any]]:
         return []
 
 
-def ask(question: str) -> str | None:
-    """Short answer suitable for speaking aloud."""
-    answer = _generate(
-        question,
-        "You are Surf, a concise voice assistant. Answer in at most two short sentences of plain "
-        "spoken English: no markdown, lists, or emojis. If you don't know or it needs live data "
-        "(news, weather, prices), say so briefly.",
-        json_mode=False,
-        max_tokens=120,
-        temperature=0.4,
-    )
+def _chat(messages: list[dict], *, max_tokens: int, temperature: float) -> str | None:
+    """Multi-turn generation (used for answers, so follow-up questions have context)."""
+    if not _ollama_is_running():
+        logger.error("Ollama is not running. Start it with: ollama serve")
+        return None
+    payload: dict[str, Any] = {
+        "model": config.MODEL_NAME,
+        "messages": messages,
+        "stream": False,
+        "keep_alive": config.LLM_KEEP_ALIVE,
+        "options": {"num_predict": max_tokens, "temperature": temperature},
+    }
+    try:
+        r = requests.post(f"{config.OLLAMA_HOST}/api/chat", json=payload, timeout=config.LLM_TIMEOUT)
+        if r.status_code == 404:
+            logger.error(f"Model '{config.MODEL_NAME}' not found. Run: ollama pull {config.MODEL_NAME}")
+            return None
+        r.raise_for_status()
+        return (r.json().get("message") or {}).get("content", "").strip()
+    except requests.Timeout:
+        logger.error(f"Ollama took longer than {config.LLM_TIMEOUT:.0f}s.")
+    except requests.RequestException as e:
+        logger.error(f"Ollama request failed: {e}")
+    return None
+
+
+def _answer_system(personal: str = "", reference: str = "") -> str:
+    now = datetime.datetime.now()
+    lines = [
+        "You are Surf, a friendly, concise voice assistant on the user's Windows PC (like Siri).",
+        "Answer in at most two or three short sentences of plain spoken English: no markdown, lists, "
+        "emojis or URLs. Be warm but get to the point. Use the earlier conversation to resolve follow-ups "
+        "like 'he', 'it' or 'what about tomorrow'.",
+        f"Right now it is {now.strftime('%A, %d %B %Y, %I:%M %p')}.",
+    ]
+    if config.HOME_CITY:
+        lines.append(f"The user lives in {config.HOME_CITY}.")
+    if personal:
+        lines.append(personal)
+    if reference:
+        lines.append(
+            "Reference text from Wikipedia, which may help (prefer it over your own memory for facts, "
+            f"ignore it if it is about something else):\n{reference}"
+        )
+    else:
+        lines.append("If the question needs live data you don't have (prices, scores, today's news), say so briefly.")
+    return "\n".join(lines)
+
+
+def ask(question: str, history: list[dict] | None = None, personal: str = "", reference: str = "") -> str | None:
+    """Short spoken answer. `history` = earlier chat turns, `personal` = what Surf remembers
+    about the user, `reference` = text fetched from the web to ground the answer."""
+    messages = [{"role": "system", "content": _answer_system(personal, reference)}]
+    messages += (history or [])[-12:]
+    messages.append({"role": "user", "content": question})
+    answer = _chat(messages, max_tokens=160, temperature=0.4)
     return _plain(answer) if answer else None
+
+
+def transform(instruction: str, text: str) -> str | None:
+    """Do something to a piece of text: summarise it, translate it, explain it..."""
+    out = _generate(
+        f"{instruction}\n\nText:\n{text[:6000]}",
+        "You help with text the user copied. Reply in plain spoken English (no markdown), at most "
+        "four sentences, unless the instruction asks for a translation, which should be complete.",
+        json_mode=False,
+        max_tokens=300,
+        temperature=0.3,
+    )
+    return _plain(out) if out else None
 
 
 def compose(request: str) -> str | None:

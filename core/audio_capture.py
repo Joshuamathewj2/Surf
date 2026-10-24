@@ -86,10 +86,15 @@ class Endpointer:
 
 
 def record_utterance(
-    stream, chunk_size: int, sample_rate: int = config.AUDIO_SAMPLE_RATE, ambient: float | None = None
+    stream,
+    chunk_size: int,
+    sample_rate: int = config.AUDIO_SAMPLE_RATE,
+    ambient: float | None = None,
+    on_level=None,
 ) -> np.ndarray:
     """Read from an open sounddevice stream until the utterance ends. Returns float32 audio
-    (with a little lead-in so the first word isn't clipped), or an empty array on timeout."""
+    (with a little lead-in so the first word isn't clipped), or an empty array on timeout.
+    `on_level(rms)` is called for every chunk (the robot's aura follows your voice)."""
     endpointer = Endpointer(chunk_sec=chunk_size / sample_rate, ambient=ambient)
     frames: list[np.ndarray] = []
     lead_in: list[np.ndarray] = []
@@ -97,7 +102,10 @@ def record_utterance(
         chunk, _ = stream.read(chunk_size)
         flat = chunk.flatten()
         audio = flat.astype(np.float32) / 32768.0 if flat.dtype == np.int16 else flat.astype(np.float32)
-        state = endpointer.feed(rms(audio))
+        level = rms(audio)
+        if on_level is not None:
+            on_level(level)
+        state = endpointer.feed(level)
         if state in ("calibrating", "waiting"):
             lead_in = (lead_in + [audio])[-4:]
             continue

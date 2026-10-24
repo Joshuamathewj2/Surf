@@ -48,13 +48,26 @@ def test_slots(text, action, slot, value):
 
 
 def test_wake_words_and_filler_are_stripped():
+    assert clean_utterance("Hey Surf, can you please open Chrome?") == "open chrome"
     assert clean_utterance("Hey Jarvis, can you please open Chrome?") == "open chrome"
+    assert route_command("Hey Surf open notepad please").get("action") == "open_notepad"
     assert route_command("Hey Jarvis open notepad please").get("action") == "open_notepad"
+    assert route_command("Surf").get("type") == "empty"
     assert route_command("Jarvis").get("type") == "empty"
 
 
+def test_conversational_intents():
+    assert route_command("hello")["action"] == "greet"
+    assert route_command("hey surf, good morning")["action"] == "greet"
+    assert route_command("how are you")["action"] == "how_are_you"
+    assert route_command("who are you")["action"] == "who_are_you"
+    assert route_command("what can you do")["action"] == "help"
+    assert route_command("thank you")["action"] == "thank_you"
+    assert route_command("goodbye")["action"] == "goodbye"
+
+
 def test_literal_typing_keeps_original_casing():
-    route = route_command("Hey Jarvis type Hello World")
+    route = route_command("Hey Surf type Hello World")
     assert route["action"] == "type_text"
     assert route["text"] == "Hello World"
 

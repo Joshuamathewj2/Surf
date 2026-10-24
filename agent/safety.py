@@ -22,8 +22,17 @@ BLOCKED_PATTERNS = [
     r"\bregistry\b",
 ]
 
+# Surf's own data is fine to remove: "delete my reminders", "remove the alarm".
+ALLOWED_PATTERNS = [
+    r"^(?:please )?(?:delete|remove|erase|wipe|clear) (?:my |the |all |all my |all the |that |this )*"
+    r"(?:timers?|alarms?|reminders?)$",
+]
+
 _BLOCKED = [re.compile(p, re.IGNORECASE) for p in BLOCKED_PATTERNS]
+_ALLOWED = [re.compile(p, re.IGNORECASE) for p in ALLOWED_PATTERNS]
 
 
 def is_safe(command: str) -> bool:
+    if any(p.search(command.strip(" .!?")) for p in _ALLOWED):
+        return True
     return not any(p.search(command) for p in _BLOCKED)

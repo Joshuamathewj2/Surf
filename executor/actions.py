@@ -71,6 +71,23 @@ def _screenshot(_: Dict[str, Any]) -> None:
     SystemSkill()._take_screenshot()
 
 
+def _skill(intent: str, **slots: Any) -> None:
+    """Run a skill from a plan and say what it reports (e.g. the weather)."""
+    from agent.speaker import speak
+    from skills.registry import dispatch_action
+
+    ok, feedback = dispatch_action(intent, slots)
+    if feedback:
+        speak(feedback)
+    if not ok:
+        raise RuntimeError(feedback or intent)
+
+
+def _media(step: Dict[str, Any]) -> None:
+    intent = {"next": "media_next", "previous": "media_previous"}.get(step["command"].lower(), "media_play_pause")
+    _skill(intent)
+
+
 HANDLERS: Dict[str, Callable[[Dict[str, Any]], None]] = {
     "open_app": _open_app,
     "open_url": _open_url,
@@ -84,6 +101,9 @@ HANDLERS: Dict[str, Callable[[Dict[str, Any]], None]] = {
     "focus_window": lambda s: wait_for_window(s["title"], timeout=2),
     "take_screenshot": _screenshot,
     "open_start_menu": lambda s: pyautogui.press("win"),
+    "set_timer": lambda s: _skill("set_timer", seconds=int(max(1, min(float(s["seconds"]), 86400)))),
+    "media": _media,
+    "weather": lambda s: _skill("weather", place=str(s.get("place", "")), day=int(s.get("day", 0) or 0)),
 }
 
 
